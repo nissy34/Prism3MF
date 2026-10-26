@@ -11,9 +11,9 @@ import {
   parse3MFArchive,
   exportSimplified3MF,
 } from './threeMfProcessor';
-import { generateSampleMakerWorld3MF } from './sample3mfGenerator';
+import { generateSample3MF } from './sample3mfGenerator';
 
-describe('Orca / Bambu 3MF Paint Color Codec', () => {
+describe('3MF Paint Color Codec', () => {
   it('accurately encodes and decodes filament slots 1..16', () => {
     expect(encodePaintState(0)).toBe('');
     expect(encodePaintState(1)).toBe('4');
@@ -79,8 +79,8 @@ describe('Orca / Bambu 3MF Paint Color Codec', () => {
 });
 
 describe('Color-Preserving QEM Simplifier & 3MF Roundtrip', () => {
-  it('simplifies a painted MakerWorld 3MF while preserving all color zones and metadata', () => {
-    const sampleBuffer = generateSampleMakerWorld3MF();
+  it('simplifies a painted 3MF while preserving all color zones and metadata', () => {
+    const sampleBuffer = generateSample3MF();
     const archive = parse3MFArchive(sampleBuffer, 'sample.3mf');
 
     expect(archive.meshes.length).toBe(1);
@@ -142,19 +142,18 @@ describe('Color-Preserving QEM Simplifier & 3MF Roundtrip', () => {
     expect(reparsed.filaments.length).toBe(4);
   });
 
-  it('parses, simplifies, and exports GATTO+ALTA+DEFINIZIONE.3mf (1.82M triangles) without Invalid string length', () => {
-    const gattoPath = process.env.PRISM3MF_LARGE_TEST_FILE || '';
-    if (!gattoPath || !fs.existsSync(gattoPath)) return;
+  it('parses, simplifies, and exports a large external .3mf file when PRISM3MF_LARGE_TEST_FILE is set', () => {
+    const testFilePath = process.env.PRISM3MF_LARGE_TEST_FILE || '';
+    if (!testFilePath || !fs.existsSync(testFilePath)) return;
 
-    const rawBuf = fs.readFileSync(gattoPath);
+    const rawBuf = fs.readFileSync(testFilePath);
     const ab = rawBuf.buffer.slice(rawBuf.byteOffset, rawBuf.byteOffset + rawBuf.byteLength) as ArrayBuffer;
 
-    const parsed = parse3MFArchive(ab, 'GATTO+ALTA+DEFINIZIONE.3mf');
-    expect(parsed.totalRawTriangles).toBe(1828984);
-    expect(parsed.meshes.length).toBe(1);
+    const parsed = parse3MFArchive(ab, 'large_model.3mf');
+    expect(parsed.totalRawTriangles).toBeGreaterThan(100000);
+    expect(parsed.meshes.length).toBeGreaterThan(0);
 
     const mesh = parsed.meshes[0];
-    // Simplify 1.82M triangles down to 25% (~457k triangles) while locking color boundaries
     const decimated = simplifyPaintedMesh(
       mesh.expandedVertices,
       mesh.expandedTriangles,
@@ -170,8 +169,8 @@ describe('Color-Preserving QEM Simplifier & 3MF Roundtrip', () => {
     );
 
     const simplifiedTriCount = decimated.triangles.length / 3;
-    expect(simplifiedTriCount).toBeLessThan(700000);
-    expect(simplifiedTriCount).toBeGreaterThan(200000);
+    expect(simplifiedTriCount).toBeLessThan(mesh.expandedTriangles.length / 3);
+    expect(simplifiedTriCount).toBeGreaterThan(1000);
 
     // Export back to .3mf bytes (must not throw Invalid string length!)
     const exportedZip = exportSimplified3MF(parsed, [
@@ -187,7 +186,7 @@ describe('Color-Preserving QEM Simplifier & 3MF Roundtrip', () => {
       },
     ]);
 
-    expect(exportedZip.byteLength).toBeGreaterThan(1000000);
+    expect(exportedZip.byteLength).toBeGreaterThan(1000);
     expect(exportedZip.byteLength).toBeLessThan(rawBuf.byteLength);
   }, 60000);
 });

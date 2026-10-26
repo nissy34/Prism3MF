@@ -2,14 +2,14 @@ import { zipSync, strToU8 } from 'fflate';
 import { encodePaintState } from './paintColorCodec';
 
 /**
- * Generates a realistic, high-poly multi-color painted 3MF model (similar to a MakerWorld
- * 4-color AMS figurine/sculpt with eyes, belly patch, stripes, and base) entirely in memory
- * so the user can test and verify the color-preserving simplifier with one click.
+ * Generates a high-poly multi-color painted 3MF demo model (4-color figurine/sculpt
+ * with eyes, belly patch, stripes, and base) entirely in memory so users can test
+ * and verify color-preserving mesh simplification with one click.
  *
  * Includes both whole-triangle `paint_color` assignments AND recursive subdivided
  * `paint_color` boundary triangles (testing `TriangleSelector` subdivision decoding).
  */
-export function generateSampleMakerWorld3MF(): ArrayBuffer {
+export function generateSample3MF(): ArrayBuffer {
   const rings = 90;
   const segments = 120;
   const radius = 28;
@@ -174,9 +174,9 @@ export function generateSampleMakerWorld3MF(): ArrayBuffer {
 
   const modelXml = `<?xml version="1.0" encoding="UTF-8"?>
 <model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:BambuStudio="http://schemas.bambulab.com/package/2021">
- <metadata name="Application">BambuStudio-01.09.05.51</metadata>
+ <metadata name="Application">Prism3MF-1.0.0</metadata>
  <resources>
-  <object id="1" name="MakerWorld_Painted_Companion" type="model">
+  <object id="1" name="Painted_Demo_Model" type="model">
    <mesh>
     <vertices>
 ${vLines}
@@ -197,10 +197,10 @@ ${tLines}
       filament_colour: ['#10B981', '#F8FAFC', '#1E293B', '#F97316'],
       filament_type: ['PLA', 'PLA', 'PLA', 'PLA'],
       filament_settings_id: [
-        'Bambu PLA Basic Jade Green',
-        'Bambu PLA Matte Ivory White',
-        'Bambu PLA Matte Charcoal',
-        'Bambu PLA Basic Mandarin Orange',
+        'PLA Emerald Green',
+        'PLA Ivory White',
+        'PLA Charcoal Black',
+        'PLA Mandarin Orange',
       ],
     },
     null,
@@ -210,10 +210,10 @@ ${tLines}
   const modelSettingsXml = `<?xml version="1.0" encoding="UTF-8"?>
 <config>
   <object id="1">
-    <metadata key="name" value="MakerWorld_Painted_Companion.3mf"/>
+    <metadata key="name" value="Painted_Demo_Model.3mf"/>
     <metadata key="extruder" value="1"/>
     <part id="1" subtype="normal_part">
-      <metadata key="name" value="MakerWorld_Painted_Companion"/>
+      <metadata key="name" value="Painted_Demo_Model"/>
       <metadata key="extruder" value="1"/>
       <mesh_stat face_count="${triangles.length}" edges_fixed="0" degenerate_facets="0" facets_removed="0" facets_reversed="0" backwards_edges="0"/>
     </part>

@@ -21,7 +21,7 @@ import {
   SimplifiedMeshResult,
   FilamentInfo,
 } from './core';
-import { generateSampleMakerWorld3MF } from './core/sample3mfGenerator';
+import { generateSample3MF } from './core/sample3mfGenerator';
 import {
   ThreeViewport,
   ViewportDisplayMode,
@@ -190,12 +190,10 @@ export function App() {
     ]
   );
 
-  // Auto-load built-in MakerWorld sample 3MF on first mount
-  useEffect(() => {
-    const sampleBuf = generateSampleMakerWorld3MF();
-    load3MFBuffer(sampleBuf, 'MakerWorld_Painted_Companion.3mf');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const handleLoadDemoModel = () => {
+    const sampleBuf = generateSample3MF();
+    load3MFBuffer(sampleBuf, 'Painted_Demo_Model.3mf');
+  };
 
   const triggerSimplificationWithOptions = (opts: SimplificationOptions) => {
     if (!archive || !workerRef.current) return;
@@ -226,7 +224,7 @@ export function App() {
 
   const handleFileUpload = async (file: File) => {
     if (!file.name.toLowerCase().endsWith('.3mf')) {
-      setErrorMsg('Please select a valid .3mf file (from MakerWorld, Bambu Studio, or OrcaSlicer).');
+      setErrorMsg('Please select a valid .3mf file.');
       return;
     }
     const buf = await file.arrayBuffer();
@@ -302,7 +300,7 @@ export function App() {
               </span>
             </div>
             <p className="text-xs text-zinc-400">
-              Simplify high-poly MakerWorld, Bambu Studio, OrcaSlicer &amp; PrusaSlicer 3MF models without losing paint
+              Simplify high-poly multi-color 3MF models while preserving painted filament zones
             </p>
           </div>
         </div>
@@ -322,15 +320,12 @@ export function App() {
 
           <button
             type="button"
-            onClick={() => {
-              const sampleBuf = generateSampleMakerWorld3MF();
-              load3MFBuffer(sampleBuf, 'MakerWorld_Painted_Companion.3mf');
-            }}
+            onClick={handleLoadDemoModel}
             className="px-3 py-1.5 rounded-md text-xs font-medium bg-zinc-800/80 hover:bg-zinc-800 text-zinc-300 border border-zinc-700/70 flex items-center gap-1.5 transition-colors"
-            title="Reload built-in multi-color painted sample 3MF"
+            title="Load built-in multi-color painted demo 3MF"
           >
             <RotateCcw className="w-3.5 h-3.5 text-zinc-400" />
-            Sample 3MF
+            Demo 3MF
           </button>
 
           <button
@@ -382,7 +377,7 @@ export function App() {
               )}
             </div>
 
-            {archive && (
+            {archive ? (
               <div className="rounded-md bg-zinc-900 border border-zinc-800 p-3 space-y-2.5">
                 <div className="flex items-center justify-between gap-2">
                   <div className="truncate text-xs font-medium text-zinc-200" title={archive.fileName}>
@@ -420,6 +415,10 @@ export function App() {
                     </div>
                   </div>
                 </div>
+              </div>
+            ) : (
+              <div className="rounded-md bg-zinc-900/60 border border-zinc-800/80 p-3 text-xs text-zinc-400">
+                No model loaded. Open or drop a <code className="text-zinc-300 font-mono">.3mf</code> file to inspect triangle counts and paint zones.
               </div>
             )}
           </div>
@@ -530,7 +529,7 @@ export function App() {
                     Resolve Subdivided Paint Trees
                   </div>
                   <div className="text-[11px] text-zinc-400 leading-relaxed">
-                    Unpacks Orca/Bambu recursive <code className="text-zinc-300">paint_color</code> quadtrees into sub-triangles with T-junction stitching.
+                    Unpacks recursive <code className="text-zinc-300">paint_color</code> / <code className="text-zinc-300">mmu_segmentation</code> quadtrees into sub-triangles with T-junction stitching.
                   </div>
                 </div>
               </label>
@@ -589,126 +588,138 @@ export function App() {
             </button>
           </div>
 
-          {/* AMS Filament Slots Palette */}
+          {/* Multi-Color Filament Slots Palette */}
           <div className="p-4 space-y-3 flex-1">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
                 <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
-                AMS Filament Slots ({filaments.length})
+                Filament Palette ({filaments.length})
               </span>
-              <span className="text-[11px] text-zinc-400">Click to preview tint</span>
+              {filaments.length > 0 && (
+                <span className="text-[11px] text-zinc-400">Click to preview tint</span>
+              )}
             </div>
 
-            <div className="space-y-1.5">
-              {filaments.map((fil) => (
-                <div
-                  key={fil.id}
-                  className="flex items-center justify-between p-2 rounded bg-zinc-900/90 border border-zinc-800/80 text-xs"
-                >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <label
-                      className="relative w-5 h-5 rounded border border-zinc-600 shrink-0 cursor-pointer overflow-hidden"
-                      style={{ backgroundColor: fil.color }}
-                      title={`Change preview color for Slot ${fil.id}`}
-                    >
-                      <input
-                        type="color"
-                        value={fil.color}
-                        onChange={(e) => handleFilamentColorChange(fil.id, e.target.value)}
-                        className="opacity-0 absolute inset-0 w-full h-full cursor-pointer"
-                      />
-                    </label>
-                    <div className="truncate">
-                      <div className="font-medium text-zinc-200 truncate">
-                        Slot {fil.id}: {fil.name || `Extruder ${fil.id}`}
-                      </div>
-                      <div className="text-[10px] font-mono text-zinc-400">
-                        paint_color=&quot;{fil.id === 1 ? '4' : fil.id === 2 ? '8' : `${(fil.id - 3).toString(16).toUpperCase()}C`}&quot; • {fil.color.toUpperCase()}
+            {filaments.length === 0 ? (
+              <div className="rounded-md bg-zinc-900/60 border border-zinc-800/80 p-3 text-xs text-zinc-400">
+                Filament slots and colors from the <code className="text-zinc-300 font-mono">.3mf</code> project settings will appear here once a file is loaded.
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                {filaments.map((fil) => (
+                  <div
+                    key={fil.id}
+                    className="flex items-center justify-between p-2 rounded bg-zinc-900/90 border border-zinc-800/80 text-xs"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <label
+                        className="relative w-5 h-5 rounded border border-zinc-600 shrink-0 cursor-pointer overflow-hidden"
+                        style={{ backgroundColor: fil.color }}
+                        title={`Change preview color for Slot ${fil.id}`}
+                      >
+                        <input
+                          type="color"
+                          value={fil.color}
+                          onChange={(e) => handleFilamentColorChange(fil.id, e.target.value)}
+                          className="opacity-0 absolute inset-0 w-full h-full cursor-pointer"
+                        />
+                      </label>
+                      <div className="truncate">
+                        <div className="font-medium text-zinc-200 truncate">
+                          Slot {fil.id}: {fil.name || `Extruder ${fil.id}`}
+                        </div>
+                        <div className="text-[10px] font-mono text-zinc-400">
+                          paint_color=&quot;{fil.id === 1 ? '4' : fil.id === 2 ? '8' : `${(fil.id - 3).toString(16).toUpperCase()}C`}&quot; • {fil.color.toUpperCase()}
+                        </div>
                       </div>
                     </div>
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 shrink-0">
+                      {fil.type || 'PLA'}
+                    </span>
                   </div>
-                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 shrink-0">
-                    {fil.type || 'PLA'}
-                  </span>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         </aside>
 
         {/* Center 3D Viewport Area */}
         <main className="flex-1 relative flex flex-col bg-zinc-950 min-w-0">
           {/* Floating Viewport Toolbar */}
-          <div className="absolute top-4 left-4 z-10 flex items-center gap-1.5 p-1 rounded-lg bg-zinc-900/90 border border-zinc-800 backdrop-blur-md shadow-lg">
-            <button
-              type="button"
-              onClick={() => setDisplayMode('simplified')}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors ${
-                displayMode === 'simplified'
-                  ? 'bg-emerald-500 text-zinc-950 font-semibold'
-                  : 'text-zinc-300 hover:bg-zinc-800'
-              }`}
-            >
-              <Eye className="w-3.5 h-3.5" />
-              Simplified ({currentSimplifiedTris.toLocaleString()} tris)
-            </button>
+          {archive && (
+            <>
+              <div className="absolute top-4 left-4 z-10 flex items-center gap-1.5 p-1 rounded-lg bg-zinc-900/90 border border-zinc-800 backdrop-blur-md shadow-lg">
+                <button
+                  type="button"
+                  onClick={() => setDisplayMode('simplified')}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors ${
+                    displayMode === 'simplified'
+                      ? 'bg-emerald-500 text-zinc-950 font-semibold'
+                      : 'text-zinc-300 hover:bg-zinc-800'
+                  }`}
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  Simplified ({currentSimplifiedTris.toLocaleString()} tris)
+                </button>
 
-            <button
-              type="button"
-              onClick={() => setDisplayMode('original')}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors ${
-                displayMode === 'original'
-                  ? 'bg-emerald-500 text-zinc-950 font-semibold'
-                  : 'text-zinc-300 hover:bg-zinc-800'
-              }`}
-            >
-              <Layers className="w-3.5 h-3.5" />
-              Original ({baselineTris.toLocaleString()} tris)
-            </button>
+                <button
+                  type="button"
+                  onClick={() => setDisplayMode('original')}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors ${
+                    displayMode === 'original'
+                      ? 'bg-emerald-500 text-zinc-950 font-semibold'
+                      : 'text-zinc-300 hover:bg-zinc-800'
+                  }`}
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                  Original ({baselineTris.toLocaleString()} tris)
+                </button>
 
-            <button
-              type="button"
-              onClick={() => setDisplayMode('split')}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors ${
-                displayMode === 'split'
-                  ? 'bg-emerald-500 text-zinc-950 font-semibold'
-                  : 'text-zinc-300 hover:bg-zinc-800'
-              }`}
-            >
-              <Columns className="w-3.5 h-3.5" />
-              Before / After Split
-            </button>
-          </div>
+                <button
+                  type="button"
+                  onClick={() => setDisplayMode('split')}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors ${
+                    displayMode === 'split'
+                      ? 'bg-emerald-500 text-zinc-950 font-semibold'
+                      : 'text-zinc-300 hover:bg-zinc-800'
+                  }`}
+                >
+                  <Columns className="w-3.5 h-3.5" />
+                  Before / After Split
+                </button>
+              </div>
 
-          {/* Right Viewport Overlay Controls */}
-          <div className="absolute top-4 right-4 z-10 flex items-center gap-2 p-1 rounded-lg bg-zinc-900/90 border border-zinc-800 backdrop-blur-md shadow-lg">
-            <button
-              type="button"
-              onClick={() => setShowWireframe((v) => !v)}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors ${
-                showWireframe
-                  ? 'bg-zinc-700 text-zinc-100'
-                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'
-              }`}
-            >
-              <Grid className="w-3.5 h-3.5" />
-              Wireframe
-            </button>
+              {/* Right Viewport Overlay Controls */}
+              <div className="absolute top-4 right-4 z-10 flex items-center gap-2 p-1 rounded-lg bg-zinc-900/90 border border-zinc-800 backdrop-blur-md shadow-lg">
+                <button
+                  type="button"
+                  onClick={() => setShowWireframe((v) => !v)}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors ${
+                    showWireframe
+                      ? 'bg-zinc-700 text-zinc-100'
+                      : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'
+                  }`}
+                >
+                  <Grid className="w-3.5 h-3.5" />
+                  Wireframe
+                </button>
 
-            <button
-              type="button"
-              onClick={() => setHighlightColorBorders((v) => !v)}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors ${
-                highlightColorBorders
-                  ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40'
-                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'
-              }`}
-              title="Highlight locked paint boundary edges in cyan"
-            >
-              <ShieldCheck className="w-3.5 h-3.5" />
-              Inspect Color Seams
-            </button>
-          </div>
+                <button
+                  type="button"
+                  onClick={() => setHighlightColorBorders((v) => !v)}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors ${
+                    highlightColorBorders
+                      ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40'
+                      : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'
+                  }`}
+                  title="Highlight locked paint boundary edges in cyan"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  Inspect Color Seams
+                </button>
+              </div>
+            </>
+          )}
 
           {/* Error Banner */}
           {errorMsg && (
@@ -746,7 +757,7 @@ export function App() {
             <div className="absolute inset-4 z-30 rounded-2xl border-2 border-dashed border-emerald-400 bg-emerald-950/40 backdrop-blur-sm flex flex-col items-center justify-center gap-2 pointer-events-none">
               <Upload className="w-10 h-10 text-emerald-400" />
               <div className="text-base font-semibold text-emerald-200">
-                Drop MakerWorld / OrcaSlicer .3MF file to simplify
+                Drop your .3MF file to simplify
               </div>
               <div className="text-xs text-emerald-300/80">
                 Supports 100MB+ / 2M+ triangle 3MF files with multi-color paint preservation
@@ -754,9 +765,9 @@ export function App() {
             </div>
           )}
 
-          {/* 3D WebGL Canvas */}
-          <div className="flex-1 w-full h-full">
-            {archive && (
+          {/* 3D WebGL Canvas or Empty Dropzone */}
+          <div className="flex-1 w-full h-full relative">
+            {archive ? (
               <ThreeViewport
                 meshes={archive.meshes}
                 simplifiedMeshes={simplifiedMeshes}
@@ -765,6 +776,45 @@ export function App() {
                 showWireframe={showWireframe}
                 highlightColorBorders={highlightColorBorders}
               />
+            ) : (
+              !isProcessing && (
+                <div className="w-full h-full flex items-center justify-center p-6">
+                  <div className="max-w-md w-full rounded-2xl border border-dashed border-zinc-800 bg-zinc-900/40 p-8 text-center space-y-5">
+                    <div className="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mx-auto">
+                      <Upload className="w-6 h-6" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <h2 className="text-base font-semibold text-zinc-100">
+                        Open or Drop a Painted .3MF File
+                      </h2>
+                      <p className="text-xs text-zinc-400 leading-relaxed">
+                        Decimate high-poly 3MF meshes up to 90% right in your browser while locking multi-color filament paint boundaries (<code className="text-zinc-300 font-mono">paint_color</code> &amp; <code className="text-zinc-300 font-mono">mmu_segmentation</code>).
+                      </p>
+                    </div>
+                    <div className="flex items-center justify-center gap-3 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="px-4 py-2 rounded-lg text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 text-zinc-950 flex items-center gap-2 transition-colors shadow"
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                        Select .3MF File
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleLoadDemoModel}
+                        className="px-3.5 py-2 rounded-lg text-xs font-medium bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 flex items-center gap-1.5 transition-colors"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                        Try Demo Model
+                      </button>
+                    </div>
+                    <div className="text-[11px] text-zinc-500 pt-1">
+                      100% client-side processing — your 3MF files never leave your device.
+                    </div>
+                  </div>
+                </div>
+              )
             )}
           </div>
 
@@ -776,17 +826,19 @@ export function App() {
               </span>
               <span className="text-zinc-600">•</span>
               <span>
-                Build Plate: <strong className="text-zinc-300">256 × 256 mm</strong> (Bambu / Orca Z-Up)
+                Build Plate: <strong className="text-zinc-300">256 × 256 mm</strong> (Z-Up)
               </span>
             </div>
             <div className="font-mono text-zinc-300">
-              {baselineTris.toLocaleString()} → {currentSimplifiedTris.toLocaleString()} tris ({reductionPct}% lighter for slicing)
+              {archive
+                ? `${baselineTris.toLocaleString()} → ${currentSimplifiedTris.toLocaleString()} tris (${reductionPct}% lighter for slicing)`
+                : 'Ready'}
             </div>
           </div>
         </main>
       </div>
 
-      {/* Modal: How to embed the Core Engine directly into the user's online Orca Slicer */}
+      {/* Modal: Core SDK & Programmatic Usage */}
       {showIntegrationModal && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="max-w-2xl w-full rounded-xl bg-zinc-900 border border-zinc-800 shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
@@ -794,7 +846,7 @@ export function App() {
               <div className="flex items-center gap-2">
                 <Code2 className="w-4 h-4 text-emerald-400" />
                 <h2 className="text-sm font-semibold text-zinc-100">
-                  Prism3MF Core SDK — Headless Slicer &amp; Web Integration
+                  Prism3MF Core SDK — Programmatic &amp; CLI Usage
                 </h2>
               </div>
               <button
@@ -808,7 +860,7 @@ export function App() {
 
             <div className="p-5 overflow-y-auto space-y-4 text-xs text-zinc-300 leading-relaxed">
               <p>
-                The simplification engine is isolated inside <code className="text-emerald-400 font-mono">src/core/</code> with zero React/UI dependencies so you can call it directly in your online OrcaSlicer pipeline before passing the <code className="font-mono text-zinc-200">.3mf</code> buffer to the slicer backend/WASM:
+                The simplification engine in <code className="text-emerald-400 font-mono">src/core/</code> has zero UI or DOM dependencies and can be used standalone in Node.js, Web Workers, or custom 3D printing pipelines:
               </p>
 
               <pre className="p-3.5 rounded-lg bg-zinc-950 border border-zinc-800 font-mono text-[11px] text-emerald-300 overflow-x-auto">
@@ -818,13 +870,13 @@ export function App() {
   exportSimplified3MF,
 } from './core';
 
-export async function preprocessHeavy3MFForOrca(
+export async function simplify3MFFile(
   inputBuffer: ArrayBuffer,
   maxTriangles = 150_000
 ): Promise<Uint8Array> {
-  const archive = parse3MFArchive(inputBuffer, 'input.3mf');
+  const archive = parse3MFArchive(inputBuffer, 'model.3mf');
 
-  // Skip if model is already lightweight
+  // Return as-is if already under the target polygon budget
   if (archive.totalExpandedTriangles <= maxTriangles) {
     return new Uint8Array(inputBuffer);
   }
@@ -858,7 +910,7 @@ export async function preprocessHeavy3MFForOrca(
     };
   });
 
-  // Returns a valid .3mf Uint8Array with paint_color and configs intact
+  // Returns a valid .3mf Uint8Array with paint_color and slicer metadata preserved
   return exportSimplified3MF(archive, simplifiedMeshes);
 }`}
               </pre>
