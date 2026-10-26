@@ -17,6 +17,7 @@ import {
   RotateCcw,
   ChevronDown,
   ChevronRight,
+  X,
 } from 'lucide-react';
 import {
   SimplificationOptions,
@@ -56,7 +57,7 @@ export function App() {
   const [maxGeometricError, setMaxGeometricError] = useState<number>(0.02);
   const [showAdvancedSettings, setShowAdvancedSettings] = useState<boolean>(false);
   const [appliedOptions, setAppliedOptions] = useState<SimplificationOptions | null>(null);
-  const [mobileTab, setMobileTab] = useState<'viewport' | 'settings'>('viewport');
+  const [isMobileSettingsOpen, setIsMobileSettingsOpen] = useState<boolean>(false);
 
   // Viewport controls
   const [displayMode, setDisplayMode] = useState<ViewportDisplayMode>('simplified');
@@ -162,7 +163,7 @@ export function App() {
       const worker = isProcessing ? createWorker() : workerRef.current || createWorker();
 
       const nextJobId = ++jobIdRef.current;
-      setMobileTab('viewport');
+      setIsMobileSettingsOpen(false);
       setIsProcessing(true);
       setProgressStage(`Unpacking & Parsing ${fileName}...`);
       setProgress(5);
@@ -328,36 +329,24 @@ export function App() {
         </div>
 
         <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
-          {/* Mobile Tab Switcher */}
-          <div className="md:hidden flex items-center p-0.5 rounded-lg bg-zinc-950 border border-zinc-800">
-            <button
-              type="button"
-              onClick={() => setMobileTab('viewport')}
-              className={`px-2 py-1 rounded-md text-xs font-medium flex items-center gap-1 transition-colors ${
-                mobileTab === 'viewport'
-                  ? 'bg-zinc-800 text-emerald-400 shadow-sm'
-                  : 'text-zinc-400 hover:text-zinc-200'
-              }`}
-            >
-              <Eye className="w-3.5 h-3.5" />
-              <span>3D</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setMobileTab('settings')}
-              className={`relative px-2 py-1 rounded-md text-xs font-medium flex items-center gap-1 transition-colors ${
-                mobileTab === 'settings'
-                  ? 'bg-zinc-800 text-emerald-400 shadow-sm'
-                  : 'text-zinc-400 hover:text-zinc-200'
-              }`}
-            >
-              <Sliders className="w-3.5 h-3.5" />
-              <span>Settings</span>
-              {hasUnappliedChanges && (
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 absolute top-1 right-1" />
-              )}
-            </button>
-          </div>
+          {/* Mobile Settings Drawer Toggle Button */}
+          <button
+            type="button"
+            onClick={() => setIsMobileSettingsOpen((prev) => !prev)}
+            className={`md:hidden relative px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors border ${
+              isMobileSettingsOpen
+                ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
+                : 'bg-zinc-800/80 border-zinc-700/70 text-zinc-300 hover:bg-zinc-800'
+            }`}
+            aria-label="Toggle settings drawer"
+            title="Toggle simplification settings"
+          >
+            <Sliders className="w-3.5 h-3.5" />
+            <span>Settings</span>
+            {hasUnappliedChanges && (
+              <span className="w-2 h-2 rounded-full bg-amber-400 absolute -top-0.5 -right-0.5 animate-pulse" />
+            )}
+          </button>
 
           <input
             ref={fileInputRef}
@@ -425,12 +414,48 @@ export function App() {
 
       {/* Main Content Area */}
       <div className="flex flex-1 min-h-0 overflow-hidden relative">
-        {/* Left Control Sidebar: Full width on mobile when mobileTab === 'settings', fixed width on desktop */}
+        {/* Mobile Backdrop Overlay */}
+        {isMobileSettingsOpen && (
+          <div
+            className="fixed inset-0 bg-black/60 backdrop-blur-xs z-30 md:hidden"
+            onClick={() => setIsMobileSettingsOpen(false)}
+          />
+        )}
+
+        {/* Control Sidebar: Fixed slide-up drawer on mobile, left docked sidebar on desktop */}
         <aside
-          className={`${
-            mobileTab === 'settings' ? 'flex w-full' : 'hidden'
-          } md:flex md:w-80 lg:w-96 border-r border-zinc-800/90 bg-zinc-900/50 flex-col overflow-y-auto shrink-0 z-10`}
+          className={`
+            fixed inset-x-0 bottom-0 max-h-[85dvh] rounded-t-2xl z-40 bg-zinc-900 border-t border-zinc-800 shadow-2xl flex flex-col transition-transform duration-300 ease-out
+            ${isMobileSettingsOpen ? 'translate-y-0' : 'translate-y-full pointer-events-none'}
+            md:static md:translate-y-0 md:pointer-events-auto md:max-h-none md:rounded-none md:z-10
+            md:w-80 lg:w-96 md:border-r md:border-t-0 md:border-zinc-800/90 md:bg-zinc-900/50 md:shrink-0
+          `}
         >
+          {/* Mobile Drawer Grab Handle & Header with Close Button */}
+          <div className="md:hidden pt-2.5 pb-2.5 px-4 border-b border-zinc-800/80 flex items-center justify-between shrink-0 bg-zinc-900/90 rounded-t-2xl">
+            <div className="flex items-center gap-2">
+              <Sliders className="w-4 h-4 text-emerald-400" />
+              <span className="text-xs font-semibold uppercase tracking-wider text-zinc-200">
+                Simplification Settings
+              </span>
+              {hasUnappliedChanges && (
+                <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                  Unsaved
+                </span>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsMobileSettingsOpen(false)}
+              className="p-1 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors"
+              aria-label="Close settings popup"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Scrollable inner content container */}
+          <div className="flex-1 overflow-y-auto overscroll-contain">
           {/* Active File & Mesh Telemetry Card */}
           <div className="p-4 border-b border-zinc-800/80 space-y-3">
             <div className="flex items-center justify-between">
@@ -801,15 +826,17 @@ export function App() {
             )}
           </div>
 
-          {/* Sticky Mobile Navigation Bar at bottom of settings */}
-          <div className="md:hidden sticky bottom-0 p-3 bg-zinc-950/95 backdrop-blur-md border-t border-zinc-800 flex items-center gap-2 z-20">
+          </div>
+
+          {/* Mobile Drawer Bottom Action Bar */}
+          <div className="md:hidden p-3 bg-zinc-950/95 backdrop-blur-md border-t border-zinc-800 flex items-center gap-2 shrink-0">
             <button
               type="button"
-              onClick={() => setMobileTab('viewport')}
+              onClick={() => setIsMobileSettingsOpen(false)}
               className="flex-1 py-2 px-3 rounded-md bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors"
             >
               <Eye className="w-3.5 h-3.5 text-emerald-400" />
-              View 3D Model
+              Done / Back to 3D
             </button>
             {hasUnappliedChanges && (
               <button
@@ -817,23 +844,19 @@ export function App() {
                 disabled={!archive || isProcessing}
                 onClick={() => {
                   handleApplySimplification();
-                  setMobileTab('viewport');
+                  setIsMobileSettingsOpen(false);
                 }}
                 className="flex-1 py-2 px-3 rounded-md bg-emerald-500 hover:bg-emerald-400 text-zinc-950 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors shadow"
               >
                 <Cpu className="w-3.5 h-3.5" />
-                Apply &amp; View
+                Apply &amp; Close
               </button>
             )}
           </div>
         </aside>
 
-        {/* Center 3D Viewport Area */}
-        <main
-          className={`${
-            mobileTab === 'viewport' ? 'flex' : 'hidden'
-          } md:flex flex-1 relative flex-col bg-zinc-950 min-w-0 h-full overflow-hidden`}
-        >
+        {/* Center 3D Viewport Area - Always visible */}
+        <main className="flex flex-1 relative flex-col bg-zinc-950 min-w-0 h-full overflow-hidden">
           {/* Floating Viewport Toolbar */}
           {archive && (
             <div className="absolute top-2 sm:top-4 left-2 sm:left-4 right-2 sm:right-4 z-10 flex items-center justify-between pointer-events-none gap-1.5">
@@ -928,7 +951,7 @@ export function App() {
               <div className="flex items-center gap-1.5">
                 <button
                   type="button"
-                  onClick={() => setMobileTab('settings')}
+                  onClick={() => setIsMobileSettingsOpen((prev) => !prev)}
                   className="relative px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-medium flex items-center gap-1 transition-colors"
                 >
                   <Sliders className="w-3.5 h-3.5 text-emerald-400" />
