@@ -56,6 +56,7 @@ export function App() {
   const [maxGeometricError, setMaxGeometricError] = useState<number>(0.02);
   const [showAdvancedSettings, setShowAdvancedSettings] = useState<boolean>(false);
   const [appliedOptions, setAppliedOptions] = useState<SimplificationOptions | null>(null);
+  const [mobileTab, setMobileTab] = useState<'viewport' | 'settings'>('viewport');
 
   // Viewport controls
   const [displayMode, setDisplayMode] = useState<ViewportDisplayMode>('simplified');
@@ -161,6 +162,7 @@ export function App() {
       const worker = isProcessing ? createWorker() : workerRef.current || createWorker();
 
       const nextJobId = ++jobIdRef.current;
+      setMobileTab('viewport');
       setIsProcessing(true);
       setProgressStage(`Unpacking & Parsing ${fileName}...`);
       setProgress(5);
@@ -287,7 +289,7 @@ export function App() {
 
   return (
     <div
-      className="flex flex-col h-screen w-screen bg-zinc-950 text-zinc-100 select-none"
+      className="flex flex-col h-[100dvh] w-full max-w-full bg-zinc-950 text-zinc-100 select-none overflow-hidden"
       onDragOver={(e) => {
         e.preventDefault();
         setIsDraggingOver(true);
@@ -305,27 +307,58 @@ export function App() {
       }}
     >
       {/* Top Header Bar */}
-      <header className="h-14 border-b border-zinc-800/90 bg-zinc-900/80 px-4 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-md bg-emerald-500/15 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
+      <header className="h-14 border-b border-zinc-800/90 bg-zinc-900/80 px-3 sm:px-4 flex items-center justify-between shrink-0 gap-2">
+        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+          <div className="w-8 h-8 rounded-md bg-emerald-500/15 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shrink-0">
             <Layers className="w-4 h-4" />
           </div>
-          <div>
+          <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <h1 className="text-sm font-semibold tracking-tight text-zinc-100">
+              <h1 className="text-sm font-semibold tracking-tight text-zinc-100 truncate">
                 Prism3MF
               </h1>
-              <span className="text-[11px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+              <span className="hidden xs:inline-block text-[10px] sm:text-[11px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 whitespace-nowrap">
                 Color-Preserving QEM
               </span>
             </div>
-            <p className="text-xs text-zinc-400">
+            <p className="hidden md:block text-xs text-zinc-400 truncate">
               Simplify high-poly multi-color 3MF models while preserving painted filament zones
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+          {/* Mobile Tab Switcher */}
+          <div className="md:hidden flex items-center p-0.5 rounded-lg bg-zinc-950 border border-zinc-800">
+            <button
+              type="button"
+              onClick={() => setMobileTab('viewport')}
+              className={`px-2 py-1 rounded-md text-xs font-medium flex items-center gap-1 transition-colors ${
+                mobileTab === 'viewport'
+                  ? 'bg-zinc-800 text-emerald-400 shadow-sm'
+                  : 'text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              <Eye className="w-3.5 h-3.5" />
+              <span>3D</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setMobileTab('settings')}
+              className={`relative px-2 py-1 rounded-md text-xs font-medium flex items-center gap-1 transition-colors ${
+                mobileTab === 'settings'
+                  ? 'bg-zinc-800 text-emerald-400 shadow-sm'
+                  : 'text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              <Sliders className="w-3.5 h-3.5" />
+              <span>Settings</span>
+              {hasUnappliedChanges && (
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 absolute top-1 right-1" />
+              )}
+            </button>
+          </div>
+
           <input
             ref={fileInputRef}
             type="file"
@@ -341,17 +374,18 @@ export function App() {
           <button
             type="button"
             onClick={handleLoadDemoModel}
-            className="px-3 py-1.5 rounded-md text-xs font-medium bg-zinc-800/80 hover:bg-zinc-800 text-zinc-300 border border-zinc-700/70 flex items-center gap-1.5 transition-colors"
+            className="hidden sm:flex px-2.5 sm:px-3 py-1.5 rounded-md text-xs font-medium bg-zinc-800/80 hover:bg-zinc-800 text-zinc-300 border border-zinc-700/70 items-center gap-1.5 transition-colors"
             title="Load built-in multi-color painted demo 3MF"
           >
             <RotateCcw className="w-3.5 h-3.5 text-zinc-400" />
-            Demo 3MF
+            <span className="hidden md:inline">Demo 3MF</span>
+            <span className="md:hidden">Demo</span>
           </button>
 
           <button
             type="button"
             onClick={() => setShowIntegrationModal(true)}
-            className="px-3 py-1.5 rounded-md text-xs font-medium bg-zinc-800/80 hover:bg-zinc-800 text-zinc-300 border border-zinc-700/70 flex items-center gap-1.5 transition-colors"
+            className="hidden lg:flex px-3 py-1.5 rounded-md text-xs font-medium bg-zinc-800/80 hover:bg-zinc-800 text-zinc-300 border border-zinc-700/70 items-center gap-1.5 transition-colors"
           >
             <Code2 className="w-3.5 h-3.5 text-emerald-400" />
             Core SDK
@@ -360,28 +394,43 @@ export function App() {
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="px-3.5 py-1.5 rounded-md text-xs font-medium bg-zinc-100 hover:bg-white text-zinc-950 flex items-center gap-1.5 transition-colors shadow-sm"
+            className="px-2.5 sm:px-3.5 py-1.5 rounded-md text-xs font-medium bg-zinc-100 hover:bg-white text-zinc-950 flex items-center gap-1.5 transition-colors shadow-sm"
           >
-            <Upload className="w-3.5 h-3.5" />
-            Open .3MF File
+            <Upload className="w-3.5 h-3.5 shrink-0" />
+            <span className="hidden xs:inline">Open</span>
+            <span className="hidden sm:inline"> .3MF</span>
           </button>
 
           <button
             type="button"
             disabled={!archive || simplifiedMeshes.length === 0 || isProcessing || isExporting}
             onClick={handleExport3MF}
-            className="px-4 py-1.5 rounded-md text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-zinc-950 flex items-center gap-1.5 transition-colors shadow-sm"
+            className="px-2.5 sm:px-4 py-1.5 rounded-md text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-zinc-950 flex items-center gap-1.5 transition-colors shadow-sm"
           >
-            <Download className="w-3.5 h-3.5" />
-            {isExporting ? 'Exporting .3MF...' : 'Export Simplified .3MF'}
+            <Download className="w-3.5 h-3.5 shrink-0" />
+            <span>
+              {isExporting ? (
+                'Exporting...'
+              ) : (
+                <>
+                  <span className="hidden sm:inline">Export </span>
+                  <span>Simplified</span>
+                  <span className="hidden md:inline"> .3MF</span>
+                </>
+              )}
+            </span>
           </button>
         </div>
       </header>
 
       {/* Main Content Area */}
-      <div className="flex flex-1 min-h-0 overflow-hidden">
-        {/* Left Control Sidebar */}
-        <aside className="w-80 border-r border-zinc-800/90 bg-zinc-900/50 flex flex-col overflow-y-auto shrink-0">
+      <div className="flex flex-1 min-h-0 overflow-hidden relative">
+        {/* Left Control Sidebar: Full width on mobile when mobileTab === 'settings', fixed width on desktop */}
+        <aside
+          className={`${
+            mobileTab === 'settings' ? 'flex w-full' : 'hidden'
+          } md:flex md:w-80 lg:w-96 border-r border-zinc-800/90 bg-zinc-900/50 flex-col overflow-y-auto shrink-0 z-10`}
+        >
           {/* Active File & Mesh Telemetry Card */}
           <div className="p-4 border-b border-zinc-800/80 space-y-3">
             <div className="flex items-center justify-between">
@@ -751,84 +800,155 @@ export function App() {
               </div>
             )}
           </div>
+
+          {/* Sticky Mobile Navigation Bar at bottom of settings */}
+          <div className="md:hidden sticky bottom-0 p-3 bg-zinc-950/95 backdrop-blur-md border-t border-zinc-800 flex items-center gap-2 z-20">
+            <button
+              type="button"
+              onClick={() => setMobileTab('viewport')}
+              className="flex-1 py-2 px-3 rounded-md bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors"
+            >
+              <Eye className="w-3.5 h-3.5 text-emerald-400" />
+              View 3D Model
+            </button>
+            {hasUnappliedChanges && (
+              <button
+                type="button"
+                disabled={!archive || isProcessing}
+                onClick={() => {
+                  handleApplySimplification();
+                  setMobileTab('viewport');
+                }}
+                className="flex-1 py-2 px-3 rounded-md bg-emerald-500 hover:bg-emerald-400 text-zinc-950 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors shadow"
+              >
+                <Cpu className="w-3.5 h-3.5" />
+                Apply &amp; View
+              </button>
+            )}
+          </div>
         </aside>
 
         {/* Center 3D Viewport Area */}
-        <main className="flex-1 relative flex flex-col bg-zinc-950 min-w-0">
+        <main
+          className={`${
+            mobileTab === 'viewport' ? 'flex' : 'hidden'
+          } md:flex flex-1 relative flex-col bg-zinc-950 min-w-0 h-full overflow-hidden`}
+        >
           {/* Floating Viewport Toolbar */}
           {archive && (
-            <>
-              <div className="absolute top-4 left-4 z-10 flex items-center gap-1.5 p-1 rounded-lg bg-zinc-900/90 border border-zinc-800 backdrop-blur-md shadow-lg">
+            <div className="absolute top-2 sm:top-4 left-2 sm:left-4 right-2 sm:right-4 z-10 flex items-center justify-between pointer-events-none gap-1.5">
+              {/* Left: View Mode Toggle */}
+              <div className="flex items-center gap-0.5 sm:gap-1 p-1 rounded-lg bg-zinc-900/90 border border-zinc-800 backdrop-blur-md shadow-lg pointer-events-auto">
                 <button
                   type="button"
                   onClick={() => setDisplayMode('simplified')}
-                  className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors ${
+                  className={`px-2 sm:px-3 py-1 sm:py-1.5 rounded-md text-[11px] sm:text-xs font-medium flex items-center gap-1 sm:gap-1.5 transition-colors ${
                     displayMode === 'simplified'
                       ? 'bg-emerald-500 text-zinc-950 font-semibold'
                       : 'text-zinc-300 hover:bg-zinc-800'
                   }`}
                 >
-                  <Eye className="w-3.5 h-3.5" />
-                  Simplified ({currentSimplifiedTris.toLocaleString()} tris)
+                  <Eye className="w-3.5 h-3.5 shrink-0" />
+                  <span className="hidden sm:inline">Simplified ({currentSimplifiedTris.toLocaleString()} tris)</span>
+                  <span className="sm:hidden">Simplified</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setDisplayMode('original')}
-                  className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors ${
+                  className={`px-2 sm:px-3 py-1 sm:py-1.5 rounded-md text-[11px] sm:text-xs font-medium flex items-center gap-1 sm:gap-1.5 transition-colors ${
                     displayMode === 'original'
                       ? 'bg-emerald-500 text-zinc-950 font-semibold'
                       : 'text-zinc-300 hover:bg-zinc-800'
                   }`}
                 >
-                  <Layers className="w-3.5 h-3.5" />
-                  Original ({baselineTris.toLocaleString()} tris)
+                  <Layers className="w-3.5 h-3.5 shrink-0" />
+                  <span className="hidden sm:inline">Original ({baselineTris.toLocaleString()} tris)</span>
+                  <span className="sm:hidden">Original</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setDisplayMode('split')}
-                  className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors ${
+                  className={`px-2 sm:px-3 py-1 sm:py-1.5 rounded-md text-[11px] sm:text-xs font-medium flex items-center gap-1 sm:gap-1.5 transition-colors ${
                     displayMode === 'split'
                       ? 'bg-emerald-500 text-zinc-950 font-semibold'
                       : 'text-zinc-300 hover:bg-zinc-800'
                   }`}
                 >
-                  <Columns className="w-3.5 h-3.5" />
-                  Before / After Split
+                  <Columns className="w-3.5 h-3.5 shrink-0" />
+                  <span className="hidden sm:inline">Before / After Split</span>
+                  <span className="sm:hidden">Split</span>
                 </button>
               </div>
 
               {/* Right Viewport Overlay Controls */}
-              <div className="absolute top-4 right-4 z-10 flex items-center gap-2 p-1 rounded-lg bg-zinc-900/90 border border-zinc-800 backdrop-blur-md shadow-lg">
+              <div className="flex items-center gap-1 sm:gap-2 p-1 rounded-lg bg-zinc-900/90 border border-zinc-800 backdrop-blur-md shadow-lg pointer-events-auto shrink-0">
                 <button
                   type="button"
                   onClick={() => setShowWireframe((v) => !v)}
-                  className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors ${
+                  className={`px-2 sm:px-3 py-1 sm:py-1.5 rounded-md text-[11px] sm:text-xs font-medium flex items-center gap-1 sm:gap-1.5 transition-colors ${
                     showWireframe
                       ? 'bg-zinc-700 text-zinc-100'
                       : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'
                   }`}
+                  title="Toggle wireframe mesh overlay"
                 >
-                  <Grid className="w-3.5 h-3.5" />
-                  Wireframe
+                  <Grid className="w-3.5 h-3.5 shrink-0" />
+                  <span className="hidden xs:inline">Wireframe</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setHighlightColorBorders((v) => !v)}
-                  className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors ${
+                  className={`px-2 sm:px-3 py-1 sm:py-1.5 rounded-md text-[11px] sm:text-xs font-medium flex items-center gap-1 sm:gap-1.5 transition-colors ${
                     highlightColorBorders
                       ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40'
                       : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'
                   }`}
                   title="Highlight locked paint boundary edges in cyan"
                 >
-                  <ShieldCheck className="w-3.5 h-3.5" />
-                  Inspect Color Seams
+                  <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                  <span className="hidden xs:inline">Seams</span>
                 </button>
               </div>
-            </>
+            </div>
+          )}
+
+          {/* Mobile floating quick controls over 3D View */}
+          {archive && (
+            <div className="md:hidden absolute bottom-10 left-3 right-3 z-10 flex items-center justify-between p-2 rounded-xl bg-zinc-900/90 border border-zinc-800/90 backdrop-blur-md shadow-xl text-xs pointer-events-auto">
+              <div className="flex flex-col pl-1 min-w-0">
+                <span className="text-[10px] uppercase text-zinc-400 font-mono">Output Mesh</span>
+                <span className="font-mono text-emerald-400 font-semibold truncate text-[11px]">
+                  {currentSimplifiedTris.toLocaleString()} tris (-{reductionPct}%)
+                </span>
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setMobileTab('settings')}
+                  className="relative px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-medium flex items-center gap-1 transition-colors"
+                >
+                  <Sliders className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Settings</span>
+                  {hasUnappliedChanges && (
+                    <span className="w-2 h-2 rounded-full bg-amber-400 absolute -top-0.5 -right-0.5 animate-pulse" />
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  disabled={isProcessing || isExporting}
+                  onClick={handleExport3MF}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-semibold flex items-center gap-1 transition-colors shadow"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>{isExporting ? 'Exporting...' : 'Export'}</span>
+                </button>
+              </div>
+            </div>
           )}
 
           {/* Error Banner */}
@@ -888,8 +1008,8 @@ export function App() {
               />
             ) : (
               !isProcessing && (
-                <div className="w-full h-full flex items-center justify-center p-6">
-                  <div className="max-w-md w-full rounded-2xl border border-dashed border-zinc-800 bg-zinc-900/40 p-8 text-center space-y-5">
+                <div className="w-full h-full flex items-center justify-center p-4 sm:p-6 overflow-y-auto">
+                  <div className="max-w-md w-full rounded-2xl border border-dashed border-zinc-800 bg-zinc-900/40 p-5 sm:p-8 text-center space-y-4 sm:space-y-5 my-auto">
                     <div className="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mx-auto">
                       <Upload className="w-6 h-6" />
                     </div>
@@ -901,11 +1021,11 @@ export function App() {
                         Decimate high-poly 3MF meshes up to 90% right in your browser while locking multi-color filament paint boundaries (<code className="text-zinc-300 font-mono">paint_color</code> &amp; <code className="text-zinc-300 font-mono">mmu_segmentation</code>).
                       </p>
                     </div>
-                    <div className="flex items-center justify-center gap-3 pt-1">
+                    <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5 sm:gap-3 pt-1">
                       <button
                         type="button"
                         onClick={() => fileInputRef.current?.click()}
-                        className="px-4 py-2 rounded-lg text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 text-zinc-950 flex items-center gap-2 transition-colors shadow"
+                        className="w-full sm:w-auto px-4 py-2.5 sm:py-2 rounded-lg text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 text-zinc-950 flex items-center justify-center gap-2 transition-colors shadow"
                       >
                         <Upload className="w-3.5 h-3.5" />
                         Select .3MF File
@@ -913,7 +1033,7 @@ export function App() {
                       <button
                         type="button"
                         onClick={handleLoadDemoModel}
-                        className="px-3.5 py-2 rounded-lg text-xs font-medium bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 flex items-center gap-1.5 transition-colors"
+                        className="w-full sm:w-auto px-3.5 py-2.5 sm:py-2 rounded-lg text-xs font-medium bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 flex items-center justify-center gap-1.5 transition-colors"
                       >
                         <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
                         Try Demo Model
@@ -929,19 +1049,22 @@ export function App() {
           </div>
 
           {/* Bottom Status Footer */}
-          <div className="h-8 border-t border-zinc-800/80 bg-zinc-900/90 px-4 flex items-center justify-between text-[11px] text-zinc-400">
-            <div className="flex items-center gap-4">
-              <span>
+          <div className="h-8 border-t border-zinc-800/80 bg-zinc-900/90 px-3 sm:px-4 flex items-center justify-between text-[11px] text-zinc-400 shrink-0">
+            <div className="flex items-center gap-2 sm:gap-4 truncate">
+              <span className="hidden md:inline">
                 Drag to orbit • Scroll to zoom • Right-click to pan
               </span>
-              <span className="text-zinc-600">•</span>
-              <span>
-                Build Plate: <strong className="text-zinc-300">256 × 256 mm</strong> (Z-Up)
+              <span className="md:hidden">
+                Drag to rotate • Pinch to zoom
+              </span>
+              <span className="hidden sm:inline text-zinc-600">•</span>
+              <span className="hidden sm:inline">
+                Build Plate: <strong className="text-zinc-300">256 × 256 mm</strong>
               </span>
             </div>
-            <div className="font-mono text-zinc-300">
+            <div className="font-mono text-zinc-300 shrink-0 pl-2">
               {archive
-                ? `${baselineTris.toLocaleString()} → ${currentSimplifiedTris.toLocaleString()} tris (${reductionPct}% lighter for slicing)`
+                ? `${baselineTris.toLocaleString()} → ${currentSimplifiedTris.toLocaleString()} (-${reductionPct}%)`
                 : 'Ready'}
             </div>
           </div>
@@ -950,8 +1073,8 @@ export function App() {
 
       {/* Modal: Core SDK & Programmatic Usage */}
       {showIntegrationModal && (
-        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="max-w-2xl w-full rounded-xl bg-zinc-900 border border-zinc-800 shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+          <div className="max-w-2xl w-full rounded-xl bg-zinc-900 border border-zinc-800 shadow-2xl overflow-hidden flex flex-col max-h-[90dvh]">
             <div className="px-5 py-4 border-b border-zinc-800 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Code2 className="w-4 h-4 text-emerald-400" />

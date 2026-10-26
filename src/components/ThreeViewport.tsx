@@ -294,15 +294,24 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
     const handleResize = () => {
       if (!container) return;
-      camera.aspect = container.clientWidth / container.clientHeight;
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+      if (width === 0 || height === 0) return;
+      camera.aspect = width / height;
       camera.updateProjectionMatrix();
-      renderer.setSize(container.clientWidth, container.clientHeight);
+      renderer.setSize(width, height);
     };
     window.addEventListener('resize', handleResize);
+
+    const resizeObserver = new ResizeObserver(() => {
+      handleResize();
+    });
+    resizeObserver.observe(container);
 
     return () => {
       cancelAnimationFrame(animId);
       window.removeEventListener('resize', handleResize);
+      resizeObserver.disconnect();
       controls.dispose();
       renderer.dispose();
       if (renderer.domElement.parentNode === container) {
@@ -465,17 +474,17 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   ]);
 
   return (
-    <div ref={containerRef} className="relative w-full h-full select-none">
+    <div ref={containerRef} className="relative w-full h-full select-none touch-none">
       {displayMode === 'split' && (
-        <div className="pointer-events-none absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-6 px-4 py-1.5 rounded-full bg-zinc-900/90 border border-zinc-800 text-xs font-medium text-zinc-300 shadow-lg">
-          <span className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-zinc-400" />
-            Left: Original High-Poly
+        <div className="pointer-events-none absolute top-14 sm:top-4 left-1/2 -translate-x-1/2 flex items-center gap-2 sm:gap-6 px-3 sm:px-4 py-1 sm:py-1.5 rounded-full bg-zinc-900/90 border border-zinc-800 text-[10px] sm:text-xs font-medium text-zinc-300 shadow-lg whitespace-nowrap z-10">
+          <span className="flex items-center gap-1.5 sm:gap-2">
+            <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-zinc-400" />
+            <span className="hidden xs:inline">Left: </span>Original
           </span>
           <span className="text-zinc-600">|</span>
-          <span className="flex items-center gap-2 text-emerald-400">
-            <span className="w-2 h-2 rounded-full bg-emerald-400" />
-            Right: Simplified (Paint Preserved)
+          <span className="flex items-center gap-1.5 sm:gap-2 text-emerald-400">
+            <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-emerald-400" />
+            <span className="hidden xs:inline">Right: </span>Simplified
           </span>
         </div>
       )}
