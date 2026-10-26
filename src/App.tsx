@@ -15,6 +15,8 @@ import {
   AlertCircle,
   Code2,
   RotateCcw,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import {
   SimplificationOptions,
@@ -52,6 +54,8 @@ export function App() {
   const [colorBoundaryWeight, setColorBoundaryWeight] = useState<number>(500);
   const [resolveSubdivisions, setResolveSubdivisions] = useState<boolean>(true);
   const [maxGeometricError, setMaxGeometricError] = useState<number>(0.02);
+  const [showAdvancedSettings, setShowAdvancedSettings] = useState<boolean>(false);
+  const [appliedOptions, setAppliedOptions] = useState<SimplificationOptions | null>(null);
 
   // Viewport controls
   const [displayMode, setDisplayMode] = useState<ViewportDisplayMode>('simplified');
@@ -162,19 +166,22 @@ export function App() {
       setProgress(5);
       setErrorMsg(null);
 
+      const initialOptions: SimplificationOptions = {
+        targetRatio,
+        lockColorBoundaries,
+        colorBoundaryWeight,
+        resolveSubdivisions,
+        maxGeometricError,
+        lockOpenBorders: true,
+      };
+      setAppliedOptions(initialOptions);
+
       const req: WorkerRequestMessage = {
         type: 'LOAD_AND_SIMPLIFY',
         jobId: nextJobId,
         buffer,
         fileName,
-        options: {
-          targetRatio,
-          lockColorBoundaries,
-          colorBoundaryWeight,
-          resolveSubdivisions,
-          maxGeometricError,
-          lockOpenBorders: true,
-        },
+        options: initialOptions,
       };
 
       worker.postMessage(req, [buffer]);
@@ -198,6 +205,7 @@ export function App() {
   const triggerSimplificationWithOptions = (opts: SimplificationOptions) => {
     if (!archive || !workerRef.current) return;
     const nextJobId = ++jobIdRef.current;
+    setAppliedOptions(opts);
     setIsProcessing(true);
     setProgressStage('Simplifying Mesh & Locking Paint Boundaries...');
     setProgress(0);
@@ -264,6 +272,18 @@ export function App() {
 
   const totalSubdividedTris =
     archive?.meshes.reduce((acc, m) => acc + m.subdividedTriangleCount, 0) ?? 0;
+
+  const hasUnappliedChanges =
+    archive !== null &&
+    appliedOptions !== null &&
+    (Math.abs(appliedOptions.targetRatio - targetRatio) > 0.001 ||
+      appliedOptions.lockColorBoundaries !== lockColorBoundaries ||
+      appliedOptions.resolveSubdivisions !== resolveSubdivisions ||
+      appliedOptions.colorBoundaryWeight !== colorBoundaryWeight ||
+      Math.abs(appliedOptions.maxGeometricError - maxGeometricError) > 0.0001);
+
+  const estimatedTargetTris =
+    baselineTris > 0 ? Math.max(4, Math.round(baselineTris * targetRatio)) : 0;
 
   return (
     <div
@@ -428,20 +448,33 @@ export function App() {
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
                 <Sliders className="w-3.5 h-3.5 text-emerald-400" />
-                Simplification Target
+                Simplification Settings
               </span>
+              {hasUnappliedChanges && !isProcessing && (
+                <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                  Unsaved changes
+                </span>
+              )}
             </div>
 
             {/* Target Ratio Slider */}
             <div className="space-y-1.5">
-              <div className="flex justify-between text-xs">
-                <label htmlFor="target-ratio-slider" className="text-zinc-300 font-medium">
-                  Keep Triangle Ratio
+              <div className="flex justify-between items-baseline text-xs">
+                <label htmlFor="target-ratio-slider" className="text-zinc-200 font-medium">
+                  Triangles to Keep
                 </label>
                 <span className="font-mono text-emerald-400 font-semibold">
-                  {Math.round(targetRatio * 100)}% ({Math.round((1 - targetRatio) * 100)}% reduction)
+                  {Math.round(targetRatio * 100)}% ({Math.round((1 - targetRatio) * 100)}% smaller)
                 </span>
               </div>
+              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                Lower % creates a lighter file that slices faster.
+                {baselineTris > 0 && (
+                  <span className="text-zinc-300 font-mono">
+                    {' '}Target: ~{estimatedTargetTris.toLocaleString()} tris
+                  </span>
+                )}
+              </p>
               <input
                 id="target-ratio-slider"
                 type="range"
@@ -452,52 +485,57 @@ export function App() {
                 onChange={(e) => setTargetRatio(parseFloat(e.target.value))}
                 className="w-full accent-emerald-500 cursor-pointer"
               />
-              <div className="flex justify-between text-[11px] text-zinc-400">
-                <span>Aggressive (5%)</span>
+              <div className="flex justify-between text-[10px] text-zinc-400">
+                <span>Smallest File (5%)</span>
                 <span>Balanced (25%)</span>
-                <span>Light (80%)</span>
+                <span>Max Detail (95%)</span>
               </div>
             </div>
 
             {/* Quick Presets */}
-            <div className="grid grid-cols-4 gap-1.5">
-              {[
-                { label: '10%', ratio: 0.1 },
-                { label: '25%', ratio: 0.25 },
-                { label: '50%', ratio: 0.5 },
-                { label: '75%', ratio: 0.75 },
-              ].map((preset) => (
-                <button
-                  key={preset.label}
-                  type="button"
-                  disabled={isProcessing}
-                  onClick={() => {
-                    setTargetRatio(preset.ratio);
-                    triggerSimplificationWithOptions({
-                      targetRatio: preset.ratio,
-                      lockColorBoundaries,
-                      colorBoundaryWeight,
-                      resolveSubdivisions,
-                      maxGeometricError,
-                      lockOpenBorders: true,
-                    });
-                  }}
-                  className={`py-1 rounded text-xs font-mono border transition-colors ${
-                    Math.abs(targetRatio - preset.ratio) < 0.01
-                      ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-300 font-semibold'
-                      : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
-                  }`}
-                >
-                  Keep {preset.label}
-                </button>
-              ))}
+            <div className="space-y-1">
+              <div className="text-[10px] uppercase tracking-wider text-zinc-400">
+                Quick Presets {archive ? '(click to apply immediately)' : ''}
+              </div>
+              <div className="grid grid-cols-4 gap-1.5">
+                {[
+                  { label: '10%', ratio: 0.1 },
+                  { label: '25%', ratio: 0.25 },
+                  { label: '50%', ratio: 0.5 },
+                  { label: '75%', ratio: 0.75 },
+                ].map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    disabled={isProcessing}
+                    onClick={() => {
+                      setTargetRatio(preset.ratio);
+                      triggerSimplificationWithOptions({
+                        targetRatio: preset.ratio,
+                        lockColorBoundaries,
+                        colorBoundaryWeight,
+                        resolveSubdivisions,
+                        maxGeometricError,
+                        lockOpenBorders: true,
+                      });
+                    }}
+                    className={`py-1 rounded text-xs font-mono border transition-colors ${
+                      Math.abs(targetRatio - preset.ratio) < 0.01
+                        ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-300 font-semibold'
+                        : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    Keep {preset.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* Paint Protection Settings */}
-            <div className="pt-2 space-y-3 border-t border-zinc-800/60">
+            <div className="pt-3 space-y-3 border-t border-zinc-800/60">
               <div className="text-xs font-semibold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                Paint Boundary Protection
+                Paint &amp; Shape Protection
               </div>
 
               <label className="flex items-start gap-2.5 cursor-pointer">
@@ -509,83 +547,155 @@ export function App() {
                 />
                 <div>
                   <div className="text-xs font-medium text-zinc-200">
-                    Lock Color Borders
+                    Keep Paint Edges Sharp
                   </div>
                   <div className="text-[11px] text-zinc-400 leading-relaxed">
-                    Prevents edges from collapsing across different filament colors so eyes, text, and logos never bleed.
+                    Locks borders between different filament colors so painted eyes, text, and logos never bleed into each other.
                   </div>
                 </div>
               </label>
 
-              <label className="flex items-start gap-2.5 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={resolveSubdivisions}
-                  onChange={(e) => setResolveSubdivisions(e.target.checked)}
-                  className="mt-0.5 rounded accent-emerald-500"
-                />
-                <div>
-                  <div className="text-xs font-medium text-zinc-200">
-                    Resolve Subdivided Paint Trees
-                  </div>
-                  <div className="text-[11px] text-zinc-400 leading-relaxed">
-                    Unpacks recursive <code className="text-zinc-300">paint_color</code> / <code className="text-zinc-300">mmu_segmentation</code> quadtrees into sub-triangles with T-junction stitching.
-                  </div>
-                </div>
-              </label>
+              {/* Collapsible Advanced Tuning */}
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowAdvancedSettings((v) => !v)}
+                  className="w-full flex items-center justify-between py-1.5 px-2.5 rounded bg-zinc-900/80 hover:bg-zinc-900 border border-zinc-800/80 text-xs font-medium text-zinc-300 transition-colors"
+                >
+                  <span>Advanced Quality Tuning</span>
+                  {showAdvancedSettings ? (
+                    <ChevronDown className="w-3.5 h-3.5 text-zinc-400" />
+                  ) : (
+                    <ChevronRight className="w-3.5 h-3.5 text-zinc-400" />
+                  )}
+                </button>
 
-              <div className="space-y-1">
-                <div className="flex justify-between text-xs">
-                  <label htmlFor="boundary-weight-slider" className="text-zinc-300">
-                    Color Seam Sharpness Weight
-                  </label>
-                  <span className="font-mono text-zinc-300">
-                    {colorBoundaryWeight}x
-                  </span>
-                </div>
-                <input
-                  id="boundary-weight-slider"
-                  type="range"
-                  min={10}
-                  max={2000}
-                  step={10}
-                  value={colorBoundaryWeight}
-                  onChange={(e) => setColorBoundaryWeight(parseInt(e.target.value, 10))}
-                  className="w-full accent-emerald-500 cursor-pointer"
-                />
-              </div>
+                {showAdvancedSettings && (
+                  <div className="mt-2.5 p-3 rounded-md bg-zinc-900/40 border border-zinc-800/70 space-y-3.5">
+                    <label className="flex items-start gap-2.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={resolveSubdivisions}
+                        onChange={(e) => setResolveSubdivisions(e.target.checked)}
+                        className="mt-0.5 rounded accent-emerald-500"
+                      />
+                      <div>
+                        <div className="text-xs font-medium text-zinc-200">
+                          Preserve Fine Brush Strokes
+                        </div>
+                        <div className="text-[11px] text-zinc-400 leading-relaxed">
+                          Splits triangles that were painted with fine slicer brush strokes (<code className="text-zinc-300">paint_color</code> trees) so curved color lines stay smooth instead of blocky.
+                        </div>
+                      </div>
+                    </label>
 
-              <div className="space-y-1">
-                <div className="flex justify-between text-xs">
-                  <label htmlFor="geom-error-slider" className="text-zinc-300">
-                    Max Geometric Tolerance
-                  </label>
-                  <span className="font-mono text-zinc-300">
-                    {(maxGeometricError * 100).toFixed(1)}%
-                  </span>
-                </div>
-                <input
-                  id="geom-error-slider"
-                  type="range"
-                  min={0.002}
-                  max={0.1}
-                  step={0.002}
-                  value={maxGeometricError}
-                  onChange={(e) => setMaxGeometricError(parseFloat(e.target.value))}
-                  className="w-full accent-emerald-500 cursor-pointer"
-                />
+                    <div className="space-y-1 pt-1 border-t border-zinc-800/60">
+                      <div className="flex justify-between text-xs">
+                        <label htmlFor="boundary-weight-slider" className="text-zinc-200 font-medium">
+                          Color Seam Strictness
+                        </label>
+                        <span className="font-mono text-emerald-400">
+                          {colorBoundaryWeight}x
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-zinc-400 leading-relaxed">
+                        How strongly painted borders resist moving. Increase if thin color lines shift; lower to allow more reduction along seams.
+                      </p>
+                      <input
+                        id="boundary-weight-slider"
+                        type="range"
+                        min={10}
+                        max={2000}
+                        step={10}
+                        value={colorBoundaryWeight}
+                        onChange={(e) => setColorBoundaryWeight(parseInt(e.target.value, 10))}
+                        className="w-full accent-emerald-500 cursor-pointer"
+                      />
+                      <div className="flex justify-between text-[10px] text-zinc-400">
+                        <span>Softer seams (10x)</span>
+                        <span>Default (500x)</span>
+                        <span>Strictest (2000x)</span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1 pt-1 border-t border-zinc-800/60">
+                      <div className="flex justify-between text-xs">
+                        <label htmlFor="geom-error-slider" className="text-zinc-200 font-medium">
+                          Max Shape Deviation
+                        </label>
+                        <span className="font-mono text-emerald-400">
+                          {(maxGeometricError * 100).toFixed(1)}%
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-zinc-400 leading-relaxed">
+                        Stops simplifying curved surfaces early if the 3D shape would shift by more than this percentage of the model size.
+                      </p>
+                      <input
+                        id="geom-error-slider"
+                        type="range"
+                        min={0.002}
+                        max={0.1}
+                        step={0.002}
+                        value={maxGeometricError}
+                        onChange={(e) => setMaxGeometricError(parseFloat(e.target.value))}
+                        className="w-full accent-emerald-500 cursor-pointer"
+                      />
+                      <div className="flex justify-between text-[10px] text-zinc-400">
+                        <span>Strict shape (0.2%)</span>
+                        <span>Default (2.0%)</span>
+                        <span>More reduction (10%)</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
-            <button
-              type="button"
-              disabled={!archive || isProcessing}
-              onClick={handleApplySimplification}
-              className="w-full py-2 px-3 rounded-md bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-zinc-950 font-semibold text-xs flex items-center justify-center gap-2 transition-colors shadow"
-            >
-              <Cpu className="w-4 h-4" />
-              {isProcessing ? `Processing (${progress}%)...` : 'Run Color-Aware Decimation'}
-            </button>
+            {/* Clear Action Button with Live Sync Status */}
+            <div className="space-y-1.5 pt-1">
+              {hasUnappliedChanges && !isProcessing && (
+                <div className="text-[11px] text-amber-300/90 bg-amber-500/10 border border-amber-500/25 rounded px-2.5 py-1.5 text-center">
+                  Settings changed — click below to update the 3D model
+                </div>
+              )}
+
+              <button
+                type="button"
+                disabled={!archive || isProcessing || !hasUnappliedChanges}
+                onClick={handleApplySimplification}
+                className={`w-full py-2.5 px-3 rounded-md font-semibold text-xs flex items-center justify-center gap-2 transition-all ${
+                  !archive
+                    ? 'bg-zinc-900 border border-zinc-800 text-zinc-500 cursor-not-allowed'
+                    : isProcessing
+                      ? 'bg-emerald-500/80 text-zinc-950 cursor-wait'
+                      : hasUnappliedChanges
+                        ? 'bg-emerald-500 hover:bg-emerald-400 text-zinc-950 shadow-lg shadow-emerald-500/10 ring-2 ring-emerald-400/40'
+                        : 'bg-zinc-900/90 border border-emerald-500/30 text-emerald-400 cursor-default'
+                }`}
+              >
+                {!archive ? (
+                  <>
+                    <Cpu className="w-4 h-4" />
+                    Load a .3MF File First
+                  </>
+                ) : isProcessing ? (
+                  <>
+                    <Cpu className="w-4 h-4 animate-spin" />
+                    Simplifying Mesh ({progress}%)...
+                  </>
+                ) : hasUnappliedChanges ? (
+                  <>
+                    <Cpu className="w-4 h-4" />
+                    Apply New Settings (Keep {Math.round(targetRatio * 100)}%)
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                    Model Up to Date ({Math.round(targetRatio * 100)}% Kept)
+                  </>
+                )}
+              </button>
+            </div>
           </div>
 
           {/* Multi-Color Filament Slots Palette */}
