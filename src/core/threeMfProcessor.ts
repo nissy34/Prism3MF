@@ -574,9 +574,11 @@ export function exportCut3MF(
   cutResult: CutMeshResult,
   options?: {
     plateSpacingMm?: number;
+    assembleInPlace?: boolean;
   }
 ): Uint8Array {
   const outFiles: Record<string, Uint8Array> = { ...archive.files };
+  const assembleInPlace = options?.assembleInPlace ?? false;
   const spacing = options?.plateSpacingMm ?? 20;
   const modelPath = archive.meshes[0]?.modelPath || '3D/3dmodel.model';
   const attrName = archive.meshes[0]?.paintAttrName || 'paint_color';
@@ -590,10 +592,14 @@ export function exportCut3MF(
   const transforms: string[] = [];
   for (let i = 0; i < parts.length; i++) {
     const part = parts[i];
-    const width = part.bounds.max[0] - part.bounds.min[0];
-    const offsetX = curX - part.bounds.min[0];
-    transforms.push(`1 0 0 0 1 0 0 0 1 ${offsetX.toFixed(4)} 0 0`);
-    curX += width + spacing;
+    if (assembleInPlace) {
+      transforms.push('1 0 0 0 1 0 0 0 1 0 0 0');
+    } else {
+      const width = part.bounds.max[0] - part.bounds.min[0];
+      const offsetX = curX - part.bounds.min[0];
+      transforms.push(`1 0 0 0 1 0 0 0 1 ${offsetX.toFixed(4)} 0 0`);
+      curX += width + spacing;
+    }
   }
 
   const chunks: Uint8Array[] = [];

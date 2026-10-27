@@ -63,6 +63,7 @@ export type WorkerRequestMessage =
       type: 'EXPORT_CUT';
       jobId: number;
       partType: 'all' | 'partA' | 'partB' | 'dowel';
+      assembleInPlace?: boolean;
     };
 
 export type WorkerResponseMessage =
@@ -311,8 +312,10 @@ self.onmessage = (event: MessageEvent<WorkerRequestMessage>) => {
       let suggestedFileName = 'model_cut.3mf';
 
       if (msg.partType === 'all') {
-        outBytes = exportCut3MF(currentArchive, latestCutResult);
-        suggestedFileName = `${currentArchive.fileName.replace(/\.3mf$/i, '')}_cut_all.3mf`;
+        outBytes = exportCut3MF(currentArchive, latestCutResult, {
+          assembleInPlace: msg.assembleInPlace,
+        });
+        suggestedFileName = `${currentArchive.fileName.replace(/\.3mf$/i, '')}_cut_${msg.assembleInPlace ? 'assembled' : 'plate'}.3mf`;
       } else if (msg.partType === 'partA') {
         outBytes = exportCutPart3MF(currentArchive, latestCutResult.partA);
         suggestedFileName = `${currentArchive.fileName.replace(/\.3mf$/i, '')}_PartA_Upper.3mf`;

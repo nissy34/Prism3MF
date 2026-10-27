@@ -1,6 +1,8 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
+import { Move, RotateCw } from 'lucide-react';
 import {
   FilamentInfo,
   SimplifiedMeshResult,
@@ -21,6 +23,8 @@ export interface ThreeViewportProps {
   mode?: 'simplify' | 'cut';
   cutPlaneZ?: number;
   cutPlaneNormal?: [number, number, number];
+  onCutPlaneZChange?: (z: number) => void;
+  onCutPlaneNormalChange?: (norm: [number, number, number]) => void;
   cutResult?: CutMeshResult | null;
   explodedOffset?: number;
 }
@@ -204,6 +208,8 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   mode = 'simplify',
   cutPlaneZ,
   cutPlaneNormal = [0, 0, 1],
+  onCutPlaneZChange,
+  onCutPlaneNormalChange,
   cutResult,
   explodedOffset = 0,
 }) => {
@@ -222,6 +228,39 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   const isSplitAnchoredRef = useRef<boolean>(false);
   const origLabelRef = useRef<HTMLDivElement>(null);
   const simpLabelRef = useRef<HTMLDivElement>(null);
+
+  // Model bounds in raw coordinates to map between raw cutPlaneZ and scene coordinates
+  const modelBounds = useMemo(() => {
+    let minZ = 0;
+    let maxZ = 50;
+    if (meshes.length > 0) {
+      const verts = meshes[0].expandedVertices;
+      let minVal = Infinity;
+      let maxVal = -Infinity;
+      for (let i = 2; i < verts.length; i += 3) {
+        if (verts[i] < minVal) minVal = verts[i];
+        if (verts[i] > maxVal) maxVal = verts[i];
+      }
+      if (Number.isFinite(minVal)) minZ = minVal;
+      if (Number.isFinite(maxVal)) maxZ = maxVal;
+    }
+    return { minZ, maxZ };
+  }, [meshes]);
+
+  const modelMinZRef = useRef<number>(0);
+  modelMinZRef.current = modelBounds.minZ;
+  const modelMaxZRef = useRef<number>(50);
+  modelMaxZRef.current = modelBounds.maxZ;
+
+  const onCutPlaneZChangeRef = useRef(onCutPlaneZChange);
+  onCutPlaneZChangeRef.current = onCutPlaneZChange;
+  const onCutPlaneNormalChangeRef = useRef(onCutPlaneNormalChange);
+  onCutPlaneNormalChangeRef.current = onCutPlaneNormalChange;
+
+  const isDraggingGizmoRef = useRef<boolean>(false);
+  const transformControlsRef = useRef<TransformControls | null>(null);
+  const gizmoAnchorRef = useRef<THREE.Group | null>(null);
+  const [gizmoMode, setGizmoMode] = useState<'translate' | 'rotate'>('translate');
 
   // Initialize Three.js Scene & OrcaSlicer-style Build Plate
   useEffect(() => {
@@ -310,6 +349,47 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     scene.add(cutPlaneHelper);
     cutPlaneHelperRef.current = cutPlaneHelper;
 
+    // Dedicated anchor and TransformControls for dragging the cut plane with arrows
+    const gizmoAnchor = new THREE.Group();
+    scene.add(gizmoAnchor);
+    gizmoAnchorRef.current = gizmoAnchor;
+
+    const tControls = new TransformControls(camera, renderer.domElement);
+    tControls.size = 0.85;
+    tControls.setSpace('world');
+    tControls.showX = false;
+    tControls.showY = false;
+    tControls.showZ = true;
+    const helper = tControls.getHelper ? tControls.getHelper() : (tControls as unknown as THREE.Object3D);
+    scene.add(helper);
+    transformControlsRef.current = tControls;
+
+    tControls.addEventListener('dragging-changed', (event) => {
+      isDraggingGizmoRef.current = Boolean(event.value);
+      if (controlsRef.current) {
+        controlsRef.current.enabled = !event.value;
+      }
+    });
+
+    tControls.addEventListener('objectChange', () => {
+      if (!gizmoAnchorRef.current) return;
+      if (tControls.getMode() === 'translate') {
+        const sceneZ = gizmoAnchorRef.current.position.z;
+        const minZ = modelMinZRef.current;
+        const maxZ = modelMaxZRef.current;
+        const rawZ = Math.max(minZ, Math.min(maxZ, sceneZ + minZ));
+        onCutPlaneZChangeRef.current?.(Number(rawZ.toFixed(2)));
+      } else if (tControls.getMode() === 'rotate') {
+        const q = gizmoAnchorRef.current.quaternion;
+        const norm = new THREE.Vector3(0, 0, 1).applyQuaternion(q).normalize();
+        onCutPlaneNormalChangeRef.current?.([
+          Number(norm.x.toFixed(4)),
+          Number(norm.y.toFixed(4)),
+          Number(norm.z.toFixed(4)),
+        ]);
+      }
+    });
+
     let animId = 0;
     const animate = () => {
       animId = requestAnimationFrame(animate);
@@ -365,6 +445,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       cancelAnimationFrame(animId);
       window.removeEventListener('resize', handleResize);
       resizeObserver.disconnect();
+      tControls.dispose();
       controls.dispose();
       renderer.dispose();
       if (renderer.domElement.parentNode === container) {
@@ -373,7 +454,24 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     };
   }, []);
 
-  // Update Cutting Plane Visualizer Helper
+  // Update gizmo mode when toggled (Height Arrow vs Tilt Rings)
+  useEffect(() => {
+    const tc = transformControlsRef.current;
+    if (!tc) return;
+    if (gizmoMode === 'translate') {
+      tc.setMode('translate');
+      tc.showX = false;
+      tc.showY = false;
+      tc.showZ = true;
+    } else {
+      tc.setMode('rotate');
+      tc.showX = true;
+      tc.showY = true;
+      tc.showZ = false;
+    }
+  }, [gizmoMode]);
+
+  // Update Cutting Plane Visualizer Helper & 3D Drag Gizmo
   useEffect(() => {
     const planeGroup = cutPlaneHelperRef.current;
     if (!planeGroup) return;
@@ -409,6 +507,9 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         boundY = Math.max((maxY - minY) * 1.45, 60);
       }
 
+      // Convert raw cutPlaneZ to 3D scene coordinates (bottom of model rests on build plate Z=0)
+      const sceneZ = cutPlaneZ - modelBounds.minZ;
+
       // Translucent glowing emerald slicing laser plane
       const planeGeom = new THREE.PlaneGeometry(boundX, boundY);
       const planeMat = new THREE.MeshBasicMaterial({
@@ -419,7 +520,14 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         depthWrite: false,
       });
       const planeMesh = new THREE.Mesh(planeGeom, planeMat);
-      planeMesh.position.set(0, 0, cutPlaneZ);
+
+      // Orientation quaternion matching cutPlaneNormal
+      const normalVec = new THREE.Vector3(...cutPlaneNormal).normalize();
+      const defaultUp = new THREE.Vector3(0, 0, 1);
+      const quat = new THREE.Quaternion().setFromUnitVectors(defaultUp, normalVec);
+
+      planeMesh.position.set(0, 0, sceneZ);
+      planeMesh.quaternion.copy(quat);
       planeGroup.add(planeMesh);
 
       // Glowing outer border
@@ -431,10 +539,39 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         opacity: 0.85,
       });
       const edgeLines = new THREE.LineSegments(edges, edgeMat);
-      edgeLines.position.set(0, 0, cutPlaneZ);
+      edgeLines.position.set(0, 0, sceneZ);
+      edgeLines.quaternion.copy(quat);
       planeGroup.add(edgeLines);
+
+      // Center disc handle (Bambu Studio / OrcaSlicer style)
+      const centerDiscGeom = new THREE.CylinderGeometry(3.5, 3.5, 0.6, 24);
+      centerDiscGeom.rotateX(Math.PI / 2);
+      const centerDiscMat = new THREE.MeshStandardMaterial({
+        color: '#10b981',
+        roughness: 0.35,
+        metalness: 0.2,
+      });
+      const centerDisc = new THREE.Mesh(centerDiscGeom, centerDiscMat);
+      centerDisc.position.set(0, 0, sceneZ);
+      centerDisc.quaternion.copy(quat);
+      planeGroup.add(centerDisc);
+
+      // Attach 3D Drag Gizmo
+      if (gizmoAnchorRef.current) {
+        if (!isDraggingGizmoRef.current) {
+          gizmoAnchorRef.current.position.set(0, 0, sceneZ);
+          gizmoAnchorRef.current.quaternion.copy(quat);
+        }
+        if (transformControlsRef.current && !transformControlsRef.current.dragging) {
+          transformControlsRef.current.attach(gizmoAnchorRef.current);
+        }
+      }
+    } else {
+      if (transformControlsRef.current) {
+        transformControlsRef.current.detach();
+      }
     }
-  }, [mode, cutPlaneZ, cutResult, meshes]);
+  }, [mode, cutPlaneZ, cutPlaneNormal, cutResult, meshes, modelBounds.minZ]);
 
   // Rebuild 3D meshes when model, simplification result, or cut result changes
   useEffect(() => {
@@ -729,6 +866,41 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
           ({totalSimpTris.toLocaleString()} tris • -{reductionPct}%)
         </span>
       </div>
+
+      {/* 3D Gizmo Drag Control Pill (Height Arrow vs Tilt Rings) */}
+      {mode === 'cut' && !cutResult && meshes.length > 0 && (
+        <div className="absolute top-3 right-3 sm:top-4 sm:right-4 z-20 flex items-center gap-1 p-1 rounded-xl bg-zinc-900/90 border border-zinc-800 backdrop-blur-md shadow-xl text-xs pointer-events-auto">
+          <span className="text-[10px] font-semibold text-zinc-400 px-1.5 uppercase tracking-wider hidden sm:inline">
+            Gizmo:
+          </span>
+          <button
+            type="button"
+            onClick={() => setGizmoMode('translate')}
+            className={`px-2 py-1 rounded-lg text-xs font-medium flex items-center gap-1 transition-colors cursor-pointer ${
+              gizmoMode === 'translate'
+                ? 'bg-emerald-500 text-zinc-950 font-semibold shadow-xs'
+                : 'text-zinc-300 hover:bg-zinc-800'
+            }`}
+            title="Drag cut height along vertical arrows"
+          >
+            <Move className="w-3.5 h-3.5" />
+            <span>Height Arrow</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setGizmoMode('rotate')}
+            className={`px-2 py-1 rounded-lg text-xs font-medium flex items-center gap-1 transition-colors cursor-pointer ${
+              gizmoMode === 'rotate'
+                ? 'bg-emerald-500 text-zinc-950 font-semibold shadow-xs'
+                : 'text-zinc-300 hover:bg-zinc-800'
+            }`}
+            title="Tilt cut plane with 3D rotation rings"
+          >
+            <RotateCw className="w-3.5 h-3.5" />
+            <span>Tilt Rings</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 };

@@ -307,7 +307,10 @@ export function App() {
     workerRef.current.postMessage(req);
   };
 
-  const handleExportCut = (partType: 'all' | 'partA' | 'partB' | 'dowel') => {
+  const handleExportCut = (
+    partType: 'all' | 'partA' | 'partB' | 'dowel',
+    assembleInPlace = false
+  ) => {
     if (!archive || !cutResult || !workerRef.current) return;
     const nextJobId = ++jobIdRef.current;
     setIsExporting(true);
@@ -318,6 +321,7 @@ export function App() {
       type: 'EXPORT_CUT',
       jobId: nextJobId,
       partType,
+      assembleInPlace,
     };
     workerRef.current.postMessage(req);
   };
@@ -664,6 +668,7 @@ export function App() {
                 capFaces={cutCapFaces}
                 onCapFacesChange={setCutCapFaces}
                 onExecuteCut={handleExecuteCut}
+                onUndoCut={() => setCutResult(null)}
                 isProcessing={isProcessing}
                 cutResult={cutResult}
                 explodedOffset={explodedOffset}
@@ -860,6 +865,7 @@ export function App() {
                       capFaces={cutCapFaces}
                       onCapFacesChange={setCutCapFaces}
                       onExecuteCut={handleExecuteCut}
+                      onUndoCut={() => setCutResult(null)}
                       isProcessing={isProcessing}
                       cutResult={cutResult}
                       explodedOffset={explodedOffset}
@@ -987,6 +993,8 @@ export function App() {
               mode={toolMode}
               cutPlaneZ={cutPlaneZ}
               cutPlaneNormal={cutPlaneNormal}
+              onCutPlaneZChange={setCutPlaneZ}
+              onCutPlaneNormalChange={setCutPlaneNormal}
               cutResult={cutResult}
               explodedOffset={explodedOffset}
             />
@@ -995,43 +1003,6 @@ export function App() {
             {!archive && !isProcessing && (
               <div className="absolute inset-0 flex items-center justify-center p-4 sm:p-6 pointer-events-none">
                 <div className="max-w-lg w-full rounded-2xl border border-zinc-700/60 bg-zinc-900/90 backdrop-blur-xl p-6 sm:p-8 text-center space-y-5 shadow-2xl pointer-events-auto">
-                  {/* Tool Mode Segmented Switcher inside Hero Card */}
-                  <div className="inline-flex p-1 bg-zinc-950 rounded-xl border border-zinc-800 shadow-inner mx-auto">
-                    <button
-                      type="button"
-                      onClick={() => setToolMode('simplify')}
-                      className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
-                        toolMode === 'simplify'
-                          ? 'bg-emerald-500 text-zinc-950 shadow-md'
-                          : 'text-zinc-400 hover:text-zinc-200'
-                      }`}
-                    >
-                      <Sparkles className="w-3.5 h-3.5" />
-                      <span>Mesh Simplifier</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setToolMode('cut')}
-                      className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
-                        toolMode === 'cut'
-                          ? 'bg-emerald-500 text-zinc-950 shadow-md'
-                          : 'text-zinc-400 hover:text-zinc-200'
-                      }`}
-                    >
-                      <Scissors className="w-3.5 h-3.5" />
-                      <span>Planar Cut Splitter</span>
-                      <span
-                        className={`text-[9px] font-mono px-1 py-0.2 rounded font-bold ${
-                          toolMode === 'cut'
-                            ? 'bg-zinc-950/30 text-zinc-950'
-                            : 'bg-emerald-500/20 text-emerald-400'
-                        }`}
-                      >
-                        NEW
-                      </span>
-                    </button>
-                  </div>
-
                   {toolMode === 'simplify' ? (
                     <>
                       <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mx-auto shadow-inner">
