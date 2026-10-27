@@ -26,7 +26,7 @@ export function FilamentPaletteCard({
   // Compact row style (for mobile HUD or quick bar)
   if (compact) {
     return (
-      <div className="flex items-center gap-2 overflow-x-auto py-1 px-0.5 no-scrollbar">
+      <div className="flex items-center gap-2 overflow-x-auto py-1 px-0.5 no-scrollbar touch-pan-x overscroll-contain">
         <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 shrink-0 flex items-center gap-1">
           <Sparkles className="w-3 h-3 text-emerald-400" />
           <span>Colors:</span>

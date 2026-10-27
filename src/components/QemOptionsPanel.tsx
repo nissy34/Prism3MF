@@ -274,12 +274,19 @@ export function QemOptionsPanel({
     );
   }
 
-  // If pinned on desktop: docks as a right-hand sidebar
+  // If pinned on desktop: docks as a right-hand sidebar on wide screens (>= lg); floats on medium screens so viewport has breathing room
   if (isPinned) {
     return (
-      <aside className="w-80 border-l border-zinc-800/90 bg-zinc-900/95 shrink-0 flex flex-col h-full z-20 shadow-xl">
-        {content}
-      </aside>
+      <>
+        {/* Docked on wide desktop */}
+        <aside className="hidden lg:flex w-80 border-l border-zinc-800/90 bg-zinc-900/95 shrink-0 flex-col h-full z-20 shadow-xl">
+          {content}
+        </aside>
+        {/* Float as popover on tablet/compact desktop so 3D viewport stays wide */}
+        <div className="lg:hidden absolute top-16 right-4 w-84 max-h-[calc(100vh-5rem)] rounded-xl border border-zinc-800 bg-zinc-900/95 shadow-2xl backdrop-blur-md z-30 flex flex-col overflow-hidden">
+          {content}
+        </div>
+      </>
     );
   }
 

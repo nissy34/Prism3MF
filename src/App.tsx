@@ -15,6 +15,8 @@ import {
   RotateCcw,
   SlidersHorizontal,
   FileBox,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import {
   SimplificationOptions,
@@ -63,6 +65,9 @@ export function App() {
   // QEM Panel Open & Pin states
   const [isQemOptionsOpen, setIsQemOptionsOpen] = useState<boolean>(false);
   const [isQemPinned, setIsQemPinned] = useState<boolean>(false);
+
+  // Mobile Floating Deck Expanded state
+  const [isMobileDeckExpanded, setIsMobileDeckExpanded] = useState<boolean>(true);
 
   // Applied options cache for dirty checking
   const [appliedOptions, setAppliedOptions] = useState<SimplificationOptions | null>(null);
@@ -531,14 +536,14 @@ export function App() {
         <main className="flex flex-1 relative flex-col bg-zinc-950 min-w-0 h-full overflow-hidden">
           {/* Floating Viewport Toolbar (View Modes + Wireframe & Seams Toggles) */}
           {archive && (
-            <div className="absolute top-2 sm:top-4 left-2 sm:left-4 right-2 sm:right-4 z-10 flex items-center justify-between pointer-events-none gap-1.5">
+            <div className="absolute top-2 sm:top-4 left-2 sm:left-4 right-2 sm:right-4 z-10 flex flex-wrap sm:flex-nowrap items-center justify-between pointer-events-none gap-1 sm:gap-1.5">
               {/* Left: View Mode Toggle */}
-              <div className="flex items-center gap-0.5 sm:gap-1 p-1 rounded-lg bg-zinc-900/90 border border-zinc-800 backdrop-blur-md shadow-lg pointer-events-auto">
+              <div className="flex items-center gap-0.5 sm:gap-1 p-0.5 sm:p-1 rounded-lg bg-zinc-900/90 border border-zinc-800 backdrop-blur-md shadow-lg pointer-events-auto shrink-0">
                 <button
                   type="button"
                   disabled={!isSimplified}
                   onClick={() => setDisplayMode('simplified')}
-                  className={`px-2 sm:px-3 py-1 sm:py-1.5 rounded-md text-[11px] sm:text-xs font-medium flex items-center gap-1 sm:gap-1.5 transition-colors ${
+                  className={`px-1.5 sm:px-3 py-1 sm:py-1.5 rounded-md text-[11px] sm:text-xs font-medium flex items-center gap-1 sm:gap-1.5 transition-colors ${
                     !isSimplified
                       ? 'opacity-35 cursor-not-allowed text-zinc-500'
                       : displayMode === 'simplified'
@@ -551,28 +556,29 @@ export function App() {
                   <span className="hidden sm:inline">
                     Simplified {isSimplified ? `(${currentSimplifiedTris.toLocaleString()} tris)` : ''}
                   </span>
-                  <span className="sm:hidden">Simplified</span>
+                  <span className="sm:hidden">Simple</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setDisplayMode('original')}
-                  className={`px-2 sm:px-3 py-1 sm:py-1.5 rounded-md text-[11px] sm:text-xs font-medium flex items-center gap-1 sm:gap-1.5 transition-colors ${
+                  className={`px-1.5 sm:px-3 py-1 sm:py-1.5 rounded-md text-[11px] sm:text-xs font-medium flex items-center gap-1 sm:gap-1.5 transition-colors ${
                     displayMode === 'original'
                       ? 'bg-emerald-500 text-zinc-950 font-semibold shadow-xs'
                       : 'text-zinc-300 hover:bg-zinc-800'
                   }`}
+                  title="View original unsimplified model"
                 >
                   <Layers className="w-3.5 h-3.5 shrink-0" />
                   <span className="hidden sm:inline">Original ({baselineTris.toLocaleString()} tris)</span>
-                  <span className="sm:hidden">Original</span>
+                  <span className="sm:hidden">Orig</span>
                 </button>
 
                 <button
                   type="button"
                   disabled={!isSimplified}
                   onClick={() => setDisplayMode('split')}
-                  className={`px-2 sm:px-3 py-1 sm:py-1.5 rounded-md text-[11px] sm:text-xs font-medium flex items-center gap-1 sm:gap-1.5 transition-colors ${
+                  className={`px-1.5 sm:px-3 py-1 sm:py-1.5 rounded-md text-[11px] sm:text-xs font-medium flex items-center gap-1 sm:gap-1.5 transition-colors ${
                     !isSimplified
                       ? 'opacity-35 cursor-not-allowed text-zinc-500'
                       : displayMode === 'split'
@@ -588,11 +594,11 @@ export function App() {
               </div>
 
               {/* Right Viewport Overlay Controls: Wireframe & Color Seams */}
-              <div className="flex items-center gap-1 sm:gap-1.5 p-1 rounded-lg bg-zinc-900/90 border border-zinc-800 backdrop-blur-md shadow-lg pointer-events-auto shrink-0">
+              <div className="flex items-center gap-0.5 sm:gap-1.5 p-0.5 sm:p-1 rounded-lg bg-zinc-900/90 border border-zinc-800 backdrop-blur-md shadow-lg pointer-events-auto shrink-0">
                 <button
                   type="button"
                   onClick={() => setShowWireframe((v) => !v)}
-                  className={`px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-md text-[11px] sm:text-xs font-medium flex items-center gap-1.5 transition-colors border ${
+                  className={`px-1.5 sm:px-2.5 py-1 sm:py-1.5 rounded-md text-[11px] sm:text-xs font-medium flex items-center gap-1 sm:gap-1.5 transition-colors border ${
                     showWireframe
                       ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'
                       : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/80 border-transparent'
@@ -601,8 +607,8 @@ export function App() {
                   aria-label="Toggle wireframe mesh overlay"
                 >
                   <Triangle className="w-3.5 h-3.5 shrink-0" />
-                  <span className="hidden xs:inline">Wireframe</span>
-                  <span className="xs:hidden">Wire</span>
+                  <span className="hidden sm:inline">Wireframe</span>
+                  <span className="sm:hidden">Wire</span>
                   <span
                     className={`w-1.5 h-1.5 rounded-full shrink-0 transition-colors ${
                       showWireframe ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]' : 'bg-zinc-600'
@@ -613,7 +619,7 @@ export function App() {
                 <button
                   type="button"
                   onClick={() => setHighlightColorBorders((v) => !v)}
-                  className={`px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-md text-[11px] sm:text-xs font-medium flex items-center gap-1.5 transition-colors border ${
+                  className={`px-1.5 sm:px-2.5 py-1 sm:py-1.5 rounded-md text-[11px] sm:text-xs font-medium flex items-center gap-1 sm:gap-1.5 transition-colors border ${
                     highlightColorBorders
                       ? 'bg-sky-500/20 text-sky-300 border-sky-500/50'
                       : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/80 border-transparent'
@@ -622,8 +628,8 @@ export function App() {
                   aria-label="Highlight paint color seams"
                 >
                   <Paintbrush className="w-3.5 h-3.5 shrink-0" />
-                  <span className="hidden xs:inline">Color Seams</span>
-                  <span className="xs:hidden">Seams</span>
+                  <span className="hidden sm:inline">Color Seams</span>
+                  <span className="sm:hidden">Seams</span>
                   <span
                     className={`w-1.5 h-1.5 rounded-full shrink-0 transition-colors ${
                       highlightColorBorders ? 'bg-sky-400 shadow-[0_0_6px_rgba(56,189,248,0.8)]' : 'bg-zinc-600'
@@ -636,46 +642,130 @@ export function App() {
 
           {/* Mobile Floating Workspace Deck: Telemetry + Filaments + Simplification */}
           {archive && (
-            <div className="md:hidden absolute bottom-10 left-2.5 right-2.5 z-20 p-3 rounded-2xl bg-zinc-900/95 border border-zinc-800/90 backdrop-blur-md shadow-2xl space-y-2.5 pointer-events-auto">
-              {/* Telemetry Summary */}
-              <ModelTelemetryCard
-                fileName={archive.fileName}
-                fileSize={archive.fileSize}
-                baselineTris={baselineTris}
-                currentSimplifiedTris={currentSimplifiedTris}
-                isSimplified={isSimplified}
-                reductionPct={reductionPct}
-                processingTimeMs={processingTimeMs}
-                totalSubdividedTris={totalSubdividedTris}
-                compact
-              />
+            <div className="md:hidden absolute bottom-9 left-2 right-2 sm:left-4 sm:right-4 z-20 rounded-2xl bg-zinc-900/95 border border-zinc-800/90 backdrop-blur-md shadow-2xl pointer-events-auto transition-all duration-200">
+              {isMobileDeckExpanded ? (
+                <div className="p-2.5 sm:p-3 space-y-2">
+                  {/* Deck Header with Minimize Toggle */}
+                  <div className="flex items-center justify-between pb-1 border-b border-zinc-800/70 text-xs">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                      <span className="font-semibold text-zinc-200 text-[11px] uppercase tracking-wider">
+                        Workspace Controls
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsMobileDeckExpanded(false)}
+                      className="px-2 py-0.5 rounded text-[11px] font-medium text-zinc-400 hover:text-zinc-200 bg-zinc-800/60 hover:bg-zinc-800 transition-colors flex items-center gap-1"
+                      title="Minimize controls to view full 3D model"
+                      aria-label="Minimize controls"
+                    >
+                      <ChevronDown className="w-3.5 h-3.5" />
+                      <span>Hide</span>
+                    </button>
+                  </div>
 
-              {/* Filaments Row */}
-              <FilamentPaletteCard
-                filaments={filaments}
-                onFilamentColorChange={handleFilamentColorChange}
-                compact
-              />
+                  {/* Telemetry Summary */}
+                  <ModelTelemetryCard
+                    fileName={archive.fileName}
+                    fileSize={archive.fileSize}
+                    baselineTris={baselineTris}
+                    currentSimplifiedTris={currentSimplifiedTris}
+                    isSimplified={isSimplified}
+                    reductionPct={reductionPct}
+                    processingTimeMs={processingTimeMs}
+                    totalSubdividedTris={totalSubdividedTris}
+                    compact
+                  />
 
-              {/* Simplification Slider, Presets & Actions */}
-              <SimplifyControlCard
-                targetRatio={targetRatio}
-                onTargetRatioChange={setTargetRatio}
-                baselineTris={baselineTris}
-                estimatedTargetTris={estimatedTargetTris}
-                isProcessing={isProcessing}
-                progress={progress}
-                isSimplified={isSimplified}
-                hasUnappliedChanges={hasUnappliedChanges}
-                onApplySimplification={handleApplySimplification}
-                onExport3MF={handleExport3MF}
-                isExporting={isExporting}
-                archiveLoaded={archive !== null}
-                onToggleQemOptions={() => setIsQemOptionsOpen((v) => !v)}
-                isQemOptionsOpen={isQemOptionsOpen}
-                hasCustomQemSettings={hasCustomQemSettings}
-                compact
-              />
+                  {/* Filaments Row */}
+                  <FilamentPaletteCard
+                    filaments={filaments}
+                    onFilamentColorChange={handleFilamentColorChange}
+                    compact
+                  />
+
+                  {/* Simplification Slider, Presets & Actions */}
+                  <SimplifyControlCard
+                    targetRatio={targetRatio}
+                    onTargetRatioChange={setTargetRatio}
+                    baselineTris={baselineTris}
+                    estimatedTargetTris={estimatedTargetTris}
+                    isProcessing={isProcessing}
+                    progress={progress}
+                    isSimplified={isSimplified}
+                    hasUnappliedChanges={hasUnappliedChanges}
+                    onApplySimplification={handleApplySimplification}
+                    onExport3MF={handleExport3MF}
+                    isExporting={isExporting}
+                    archiveLoaded={archive !== null}
+                    onToggleQemOptions={() => setIsQemOptionsOpen((v) => !v)}
+                    isQemOptionsOpen={isQemOptionsOpen}
+                    hasCustomQemSettings={hasCustomQemSettings}
+                    compact
+                  />
+                </div>
+              ) : (
+                /* Collapsed Minimal Bottom Bar (leaves full screen free for 3D model) */
+                <div className="p-2 flex items-center justify-between gap-1.5 text-xs">
+                  {/* Left: Quick Target & Live Triangles */}
+                  <div className="flex items-center gap-1.5 pl-1 min-w-0">
+                    <span className="font-mono text-emerald-400 font-bold text-xs shrink-0">
+                      {Math.round(targetRatio * 100)}%
+                    </span>
+                    <span className="text-[10px] font-mono text-zinc-400 truncate">
+                      {isSimplified
+                        ? `${currentSimplifiedTris.toLocaleString()} tris (-${reductionPct}%)`
+                        : `~${estimatedTargetTris.toLocaleString()} tris`}
+                    </span>
+                  </div>
+
+                  {/* Right: Quick Actions + Expand */}
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      disabled={isProcessing}
+                      onClick={handleApplySimplification}
+                      className={`py-1 px-2.5 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all ${
+                        isProcessing
+                          ? 'bg-emerald-500/80 text-zinc-950 cursor-wait'
+                          : !isSimplified
+                            ? 'bg-emerald-500 hover:bg-emerald-400 text-zinc-950 shadow-xs'
+                            : hasUnappliedChanges
+                              ? 'bg-emerald-500 hover:bg-emerald-400 text-zinc-950'
+                              : 'bg-zinc-800 text-emerald-400 border border-emerald-500/30'
+                      }`}
+                    >
+                      <Cpu className="w-3 h-3" />
+                      <span>{isProcessing ? `${progress}%` : !isSimplified ? 'Simplify' : hasUnappliedChanges ? 'Re-run' : 'Done'}</span>
+                    </button>
+
+                    {isSimplified && (
+                      <button
+                        type="button"
+                        disabled={isProcessing || isExporting}
+                        onClick={handleExport3MF}
+                        className="py-1 px-2 rounded-lg bg-zinc-100 hover:bg-white text-zinc-950 font-semibold text-xs flex items-center gap-1 transition-colors shadow-xs"
+                        title="Download .3MF"
+                      >
+                        <Download className="w-3 h-3" />
+                        <span>.3MF</span>
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => setIsMobileDeckExpanded(true)}
+                      className="py-1 px-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium flex items-center gap-1 border border-zinc-700 transition-colors"
+                      title="Expand full controls and telemetry"
+                      aria-label="Expand controls"
+                    >
+                      <ChevronUp className="w-3.5 h-3.5 text-emerald-400" />
+                      <span className="hidden xs:inline text-[11px]">Controls</span>
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -775,7 +865,7 @@ export function App() {
           </div>
 
           {/* Bottom Status Footer */}
-          <div className="h-8 border-t border-zinc-800/80 bg-zinc-900/90 px-3 sm:px-4 flex items-center justify-between text-[11px] text-zinc-400 shrink-0">
+          <div className="h-8 border-t border-zinc-800/80 bg-zinc-900/90 px-2 sm:px-4 flex items-center justify-between text-[10px] sm:text-[11px] text-zinc-400 shrink-0">
             <div className="flex items-center gap-2 sm:gap-4 truncate">
               <span className="hidden md:inline">
                 Drag to orbit • Scroll to zoom • Right-click to pan
@@ -788,10 +878,21 @@ export function App() {
                 Build Plate: <strong className="text-zinc-300">256 × 256 mm</strong>
               </span>
             </div>
-            <div className="font-mono text-zinc-300 shrink-0 pl-2">
-              {archive
-                ? `${baselineTris.toLocaleString()} → ${currentSimplifiedTris.toLocaleString()} (-${reductionPct}%)`
-                : 'Ready'}
+            <div className="font-mono text-zinc-300 shrink-0 pl-2 text-right">
+              {archive ? (
+                <>
+                  <span className="hidden xs:inline text-zinc-400">
+                    {baselineTris.toLocaleString()} →{' '}
+                  </span>
+                  <span className={isSimplified ? 'text-emerald-400 font-semibold' : 'text-zinc-300'}>
+                    {isSimplified
+                      ? `${currentSimplifiedTris.toLocaleString()} (-${reductionPct}%)`
+                      : 'Raw'}
+                  </span>
+                </>
+              ) : (
+                'Ready'
+              )}
             </div>
           </div>
         </main>

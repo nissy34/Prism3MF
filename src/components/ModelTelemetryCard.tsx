@@ -51,7 +51,10 @@ export function ModelTelemetryCard({
               </span>
             </span>
           ) : (
-            <span className="text-zinc-500 italic">Not simplified</span>
+            <span className="text-zinc-500 italic">
+              <span className="hidden xs:inline">Not simplified</span>
+              <span className="xs:hidden">Ready</span>
+            </span>
           )}
         </div>
       </div>
