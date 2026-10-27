@@ -26,6 +26,12 @@ export interface LightweightMeshInfo {
 
 export type WorkerRequestMessage =
   | {
+      type: 'LOAD_ONLY';
+      jobId: number;
+      buffer: ArrayBuffer;
+      fileName: string;
+    }
+  | {
       type: 'LOAD_AND_SIMPLIFY';
       jobId: number;
       buffer: ArrayBuffer;
@@ -155,12 +161,12 @@ self.onmessage = (event: MessageEvent<WorkerRequestMessage>) => {
   const msg = event.data;
 
   try {
-    if (msg.type === 'LOAD_AND_SIMPLIFY') {
+    if (msg.type === 'LOAD_ONLY' || msg.type === 'LOAD_AND_SIMPLIFY') {
       const stageMsg: WorkerResponseMessage = {
         type: 'STAGE',
         jobId: msg.jobId,
         stage: `Unpacking & Parsing ${msg.fileName}...`,
-        percent: 5,
+        percent: 10,
       };
       self.postMessage(stageMsg);
 
@@ -200,7 +206,9 @@ self.onmessage = (event: MessageEvent<WorkerRequestMessage>) => {
       };
       self.postMessage(loadedMsg);
 
-      runSimplification(msg.jobId, msg.options);
+      if (msg.type === 'LOAD_AND_SIMPLIFY') {
+        runSimplification(msg.jobId, msg.options);
+      }
     } else if (msg.type === 'SIMPLIFY') {
       runSimplification(msg.jobId, msg.options);
     } else if (msg.type === 'EXPORT') {

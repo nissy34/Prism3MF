@@ -108,12 +108,18 @@ export function App() {
           totalPaintedTriangles: msg.totalPaintedTriangles,
         });
         setFilaments(msg.filaments);
+        setSimplifiedMeshes([]);
+        setDisplayMode('original'); // Show original model on load!
+        setAppliedOptions(null);
+        setIsProcessing(false);
+        setProgress(100);
         // Auto-disable wireframe on huge 500k+ triangle models so initial render is silky-smooth
         if (msg.totalRawTriangles > 200000) {
           setShowWireframe(false);
         }
       } else if (msg.type === 'SIMPLIFIED') {
         setSimplifiedMeshes(msg.results);
+        setDisplayMode('simplified'); // Automatically switch to simplified view to show the result!
         setProcessingTimeMs(msg.elapsedMs);
         setIsProcessing(false);
         setProgress(100);
@@ -156,7 +162,7 @@ export function App() {
     };
   }, [createWorker]);
 
-  // Load a 3MF ArrayBuffer inside the Web Worker
+  // Load a 3MF ArrayBuffer inside the Web Worker (parses without auto-simplifying)
   const load3MFBuffer = useCallback(
     (buffer: ArrayBuffer, fileName: string) => {
       // If a job is already running, recreate the worker to cancel it immediately
@@ -166,38 +172,22 @@ export function App() {
       setIsMobileSettingsOpen(false);
       setIsProcessing(true);
       setProgressStage(`Unpacking & Parsing ${fileName}...`);
-      setProgress(5);
+      setProgress(10);
       setErrorMsg(null);
-
-      const initialOptions: SimplificationOptions = {
-        targetRatio,
-        lockColorBoundaries,
-        colorBoundaryWeight,
-        resolveSubdivisions,
-        maxGeometricError,
-        lockOpenBorders: true,
-      };
-      setAppliedOptions(initialOptions);
+      setSimplifiedMeshes([]);
+      setDisplayMode('original');
+      setAppliedOptions(null);
 
       const req: WorkerRequestMessage = {
-        type: 'LOAD_AND_SIMPLIFY',
+        type: 'LOAD_ONLY',
         jobId: nextJobId,
         buffer,
         fileName,
-        options: initialOptions,
       };
 
       worker.postMessage(req, [buffer]);
     },
-    [
-      isProcessing,
-      createWorker,
-      targetRatio,
-      lockColorBoundaries,
-      colorBoundaryWeight,
-      resolveSubdivisions,
-      maxGeometricError,
-    ]
+    [isProcessing, createWorker]
   );
 
   const handleLoadDemoModel = () => {
@@ -276,8 +266,11 @@ export function App() {
   const totalSubdividedTris =
     archive?.meshes.reduce((acc, m) => acc + m.subdividedTriangleCount, 0) ?? 0;
 
+  const isSimplified = simplifiedMeshes.length > 0;
+
   const hasUnappliedChanges =
     archive !== null &&
+    isSimplified &&
     appliedOptions !== null &&
     (Math.abs(appliedOptions.targetRatio - targetRatio) > 0.001 ||
       appliedOptions.lockColorBoundaries !== lockColorBoundaries ||
@@ -392,19 +385,19 @@ export function App() {
 
           <button
             type="button"
-            disabled={!archive || simplifiedMeshes.length === 0 || isProcessing || isExporting}
+            disabled={!isSimplified || isProcessing || isExporting}
             onClick={handleExport3MF}
-            className="px-2.5 sm:px-4 py-1.5 rounded-md text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-zinc-950 flex items-center gap-1.5 transition-colors shadow-sm"
+            className="px-2.5 sm:px-4 py-1.5 rounded-md text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 disabled:opacity-35 disabled:hover:bg-emerald-500 text-zinc-950 flex items-center gap-1.5 transition-colors shadow-sm shrink-0"
+            title={!isSimplified ? 'Simplify mesh first to download' : 'Download simplified .3MF file'}
           >
             <Download className="w-3.5 h-3.5 shrink-0" />
             <span>
               {isExporting ? (
-                'Exporting...'
+                'Downloading...'
               ) : (
                 <>
-                  <span className="hidden sm:inline">Export </span>
-                  <span>Simplified</span>
-                  <span className="hidden md:inline"> .3MF</span>
+                  <span className="hidden xs:inline">Download </span>
+                  <span>.3MF</span>
                 </>
               )}
             </span>
@@ -497,15 +490,19 @@ export function App() {
                     )}
                   </div>
 
-                  <div className="bg-emerald-950/20 rounded p-2 border border-emerald-500/30">
-                    <div className="text-[10px] uppercase text-emerald-300/80">
+                  <div className={`rounded p-2 border ${
+                    isSimplified
+                      ? 'bg-emerald-950/20 border-emerald-500/30'
+                      : 'bg-zinc-950/40 border-zinc-800/40'
+                  }`}>
+                    <div className={`text-[10px] uppercase ${isSimplified ? 'text-emerald-300/80' : 'text-zinc-500'}`}>
                       Simplified Output
                     </div>
-                    <div className="text-sm font-mono font-semibold text-emerald-400 mt-0.5">
-                      {currentSimplifiedTris.toLocaleString()}
+                    <div className={`text-sm font-mono font-semibold mt-0.5 ${isSimplified ? 'text-emerald-400' : 'text-zinc-500'}`}>
+                      {isSimplified ? currentSimplifiedTris.toLocaleString() : 'Not run yet'}
                     </div>
-                    <div className="text-[10px] font-mono text-emerald-400/90 mt-0.5">
-                      -{reductionPct}% polygons
+                    <div className={`text-[10px] font-mono mt-0.5 ${isSimplified ? 'text-emerald-400/90' : 'text-zinc-500'}`}>
+                      {isSimplified ? `-${reductionPct}% polygons` : 'Click simplify below'}
                     </div>
                   </div>
                 </div>
@@ -569,7 +566,7 @@ export function App() {
             {/* Quick Presets */}
             <div className="space-y-1">
               <div className="text-[10px] uppercase tracking-wider text-zinc-400">
-                Quick Presets {archive ? '(click to apply immediately)' : ''}
+                Quick Presets
               </div>
               <div className="grid grid-cols-4 gap-1.5">
                 {[
@@ -582,17 +579,7 @@ export function App() {
                     key={preset.label}
                     type="button"
                     disabled={isProcessing}
-                    onClick={() => {
-                      setTargetRatio(preset.ratio);
-                      triggerSimplificationWithOptions({
-                        targetRatio: preset.ratio,
-                        lockColorBoundaries,
-                        colorBoundaryWeight,
-                        resolveSubdivisions,
-                        maxGeometricError,
-                        lockOpenBorders: true,
-                      });
-                    }}
+                    onClick={() => setTargetRatio(preset.ratio)}
                     className={`py-1 rounded text-xs font-mono border transition-colors ${
                       Math.abs(targetRatio - preset.ratio) < 0.01
                         ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-300 font-semibold'
@@ -726,7 +713,7 @@ export function App() {
             </div>
 
             {/* Clear Action Button with Live Sync Status */}
-            <div className="space-y-1.5 pt-1">
+            <div className="space-y-2 pt-1">
               {hasUnappliedChanges && !isProcessing && (
                 <div className="text-[11px] text-amber-300/90 bg-amber-500/10 border border-amber-500/25 rounded px-2.5 py-1.5 text-center">
                   Settings changed — click below to update the 3D model
@@ -735,40 +722,59 @@ export function App() {
 
               <button
                 type="button"
-                disabled={!archive || isProcessing || !hasUnappliedChanges}
+                disabled={!archive || isProcessing || (isSimplified && !hasUnappliedChanges)}
                 onClick={handleApplySimplification}
                 className={`w-full py-2.5 px-3 rounded-md font-semibold text-xs flex items-center justify-center gap-2 transition-all ${
                   !archive
                     ? 'bg-zinc-900 border border-zinc-800 text-zinc-500 cursor-not-allowed'
                     : isProcessing
                       ? 'bg-emerald-500/80 text-zinc-950 cursor-wait'
-                      : hasUnappliedChanges
-                        ? 'bg-emerald-500 hover:bg-emerald-400 text-zinc-950 shadow-lg shadow-emerald-500/10 ring-2 ring-emerald-400/40'
-                        : 'bg-zinc-900/90 border border-emerald-500/30 text-emerald-400 cursor-default'
+                      : !isSimplified
+                        ? 'bg-emerald-500 hover:bg-emerald-400 text-zinc-950 shadow-lg shadow-emerald-500/20 ring-2 ring-emerald-400/40'
+                        : hasUnappliedChanges
+                          ? 'bg-emerald-500 hover:bg-emerald-400 text-zinc-950 shadow-lg shadow-emerald-500/10 ring-2 ring-emerald-400/40'
+                          : 'bg-zinc-900/90 border border-emerald-500/30 text-emerald-400 cursor-default'
                 }`}
               >
                 {!archive ? (
                   <>
                     <Cpu className="w-4 h-4" />
-                    Load a .3MF File First
+                    Open a .3MF File First
                   </>
                 ) : isProcessing ? (
                   <>
                     <Cpu className="w-4 h-4 animate-spin" />
                     Simplifying Mesh ({progress}%)...
                   </>
+                ) : !isSimplified ? (
+                  <>
+                    <Cpu className="w-4 h-4" />
+                    Simplify Mesh (Keep {Math.round(targetRatio * 100)}%)
+                  </>
                 ) : hasUnappliedChanges ? (
                   <>
                     <Cpu className="w-4 h-4" />
-                    Apply New Settings (Keep {Math.round(targetRatio * 100)}%)
+                    Re-simplify (Keep {Math.round(targetRatio * 100)}%)
                   </>
                 ) : (
                   <>
                     <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                    Model Up to Date ({Math.round(targetRatio * 100)}% Kept)
+                    Mesh Simplified ({Math.round(targetRatio * 100)}% Kept)
                   </>
                 )}
               </button>
+
+              {isSimplified && (
+                <button
+                  type="button"
+                  disabled={isProcessing || isExporting}
+                  onClick={handleExport3MF}
+                  className="w-full py-2.5 px-3 rounded-md bg-zinc-100 hover:bg-white text-zinc-950 font-semibold text-xs flex items-center justify-center gap-2 transition-colors shadow-sm"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>{isExporting ? 'Downloading...' : 'Download .3MF'}</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -838,7 +844,7 @@ export function App() {
               <Eye className="w-3.5 h-3.5 text-emerald-400" />
               Done / Back to 3D
             </button>
-            {hasUnappliedChanges && (
+            {(!isSimplified || hasUnappliedChanges) && (
               <button
                 type="button"
                 disabled={!archive || isProcessing}
@@ -849,7 +855,7 @@ export function App() {
                 className="flex-1 py-2 px-3 rounded-md bg-emerald-500 hover:bg-emerald-400 text-zinc-950 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors shadow"
               >
                 <Cpu className="w-3.5 h-3.5" />
-                Apply &amp; Close
+                {isSimplified ? 'Re-simplify & Close' : 'Simplify & Close'}
               </button>
             )}
           </div>
@@ -864,15 +870,21 @@ export function App() {
               <div className="flex items-center gap-0.5 sm:gap-1 p-1 rounded-lg bg-zinc-900/90 border border-zinc-800 backdrop-blur-md shadow-lg pointer-events-auto">
                 <button
                   type="button"
+                  disabled={!isSimplified}
                   onClick={() => setDisplayMode('simplified')}
                   className={`px-2 sm:px-3 py-1 sm:py-1.5 rounded-md text-[11px] sm:text-xs font-medium flex items-center gap-1 sm:gap-1.5 transition-colors ${
-                    displayMode === 'simplified'
-                      ? 'bg-emerald-500 text-zinc-950 font-semibold'
-                      : 'text-zinc-300 hover:bg-zinc-800'
+                    !isSimplified
+                      ? 'opacity-35 cursor-not-allowed text-zinc-500'
+                      : displayMode === 'simplified'
+                        ? 'bg-emerald-500 text-zinc-950 font-semibold'
+                        : 'text-zinc-300 hover:bg-zinc-800'
                   }`}
+                  title={!isSimplified ? 'Simplify mesh first to view simplified version' : 'View simplified model'}
                 >
                   <Eye className="w-3.5 h-3.5 shrink-0" />
-                  <span className="hidden sm:inline">Simplified ({currentSimplifiedTris.toLocaleString()} tris)</span>
+                  <span className="hidden sm:inline">
+                    Simplified {isSimplified ? `(${currentSimplifiedTris.toLocaleString()} tris)` : ''}
+                  </span>
                   <span className="sm:hidden">Simplified</span>
                 </button>
 
@@ -892,12 +904,16 @@ export function App() {
 
                 <button
                   type="button"
+                  disabled={!isSimplified}
                   onClick={() => setDisplayMode('split')}
                   className={`px-2 sm:px-3 py-1 sm:py-1.5 rounded-md text-[11px] sm:text-xs font-medium flex items-center gap-1 sm:gap-1.5 transition-colors ${
-                    displayMode === 'split'
-                      ? 'bg-emerald-500 text-zinc-950 font-semibold'
-                      : 'text-zinc-300 hover:bg-zinc-800'
+                    !isSimplified
+                      ? 'opacity-35 cursor-not-allowed text-zinc-500'
+                      : displayMode === 'split'
+                        ? 'bg-emerald-500 text-zinc-950 font-semibold'
+                        : 'text-zinc-300 hover:bg-zinc-800'
                   }`}
+                  title={!isSimplified ? 'Simplify mesh first to compare' : 'Compare before and after'}
                 >
                   <Columns className="w-3.5 h-3.5 shrink-0" />
                   <span className="hidden sm:inline">Before / After Split</span>
@@ -938,37 +954,116 @@ export function App() {
             </div>
           )}
 
-          {/* Mobile floating quick controls over 3D View */}
+          {/* Mobile floating quick simplification bar over 3D View */}
           {archive && (
-            <div className="md:hidden absolute bottom-10 left-3 right-3 z-10 flex items-center justify-between p-2 rounded-xl bg-zinc-900/90 border border-zinc-800/90 backdrop-blur-md shadow-xl text-xs pointer-events-auto">
-              <div className="flex flex-col pl-1 min-w-0">
-                <span className="text-[10px] uppercase text-zinc-400 font-mono">Output Mesh</span>
-                <span className="font-mono text-emerald-400 font-semibold truncate text-[11px]">
-                  {currentSimplifiedTris.toLocaleString()} tris (-{reductionPct}%)
+            <div className="md:hidden absolute bottom-10 left-2.5 right-2.5 z-20 p-2.5 rounded-xl bg-zinc-900/95 border border-zinc-800/90 backdrop-blur-md shadow-2xl space-y-2 pointer-events-auto">
+              {/* Row 1: Target label & Live estimated tris */}
+              <div className="flex items-center justify-between text-xs">
+                <div className="flex items-center gap-1.5 font-medium text-zinc-200">
+                  <Sliders className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Triangles to Keep:</span>
+                  <span className="font-mono text-emerald-400 font-semibold">
+                    {Math.round(targetRatio * 100)}%
+                  </span>
+                </div>
+                <span className="text-[10px] font-mono text-zinc-400">
+                  {isSimplified
+                    ? `${currentSimplifiedTris.toLocaleString()} tris (-${reductionPct}%)`
+                    : `~${estimatedTargetTris.toLocaleString()} tris (-${Math.round((1 - targetRatio) * 100)}%)`}
                 </span>
               </div>
 
-              <div className="flex items-center gap-1.5">
+              {/* Row 2: The Ratio Slider + Presets */}
+              <div className="flex items-center gap-2">
+                <input
+                  type="range"
+                  min={0.05}
+                  max={0.95}
+                  step={0.05}
+                  value={targetRatio}
+                  onChange={(e) => setTargetRatio(parseFloat(e.target.value))}
+                  className="flex-1 accent-emerald-500 cursor-pointer h-1.5"
+                />
+                <div className="flex items-center gap-1 shrink-0">
+                  {[
+                    { label: '10%', ratio: 0.1 },
+                    { label: '25%', ratio: 0.25 },
+                    { label: '50%', ratio: 0.5 },
+                  ].map((p) => (
+                    <button
+                      key={p.label}
+                      type="button"
+                      onClick={() => setTargetRatio(p.ratio)}
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-mono border ${
+                        Math.abs(targetRatio - p.ratio) < 0.01
+                          ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-300 font-semibold'
+                          : 'bg-zinc-800 border-zinc-700 text-zinc-400'
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Row 3: Action Buttons */}
+              <div className="flex items-center gap-1.5 pt-0.5">
                 <button
                   type="button"
-                  onClick={() => setIsMobileSettingsOpen((prev) => !prev)}
-                  className="relative px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-medium flex items-center gap-1 transition-colors"
+                  disabled={isProcessing}
+                  onClick={handleApplySimplification}
+                  className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all shadow ${
+                    isProcessing
+                      ? 'bg-emerald-500/80 text-zinc-950 cursor-wait'
+                      : !isSimplified
+                        ? 'bg-emerald-500 hover:bg-emerald-400 text-zinc-950 shadow-emerald-500/20 ring-2 ring-emerald-400/40'
+                        : hasUnappliedChanges
+                          ? 'bg-emerald-500 hover:bg-emerald-400 text-zinc-950 ring-2 ring-emerald-400/40'
+                          : 'bg-zinc-800 text-emerald-400 border border-emerald-500/30'
+                  }`}
                 >
-                  <Sliders className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Settings</span>
-                  {hasUnappliedChanges && (
-                    <span className="w-2 h-2 rounded-full bg-amber-400 absolute -top-0.5 -right-0.5 animate-pulse" />
+                  {isProcessing ? (
+                    <>
+                      <Cpu className="w-3.5 h-3.5 animate-spin" />
+                      <span>Simplifying ({progress}%)...</span>
+                    </>
+                  ) : !isSimplified ? (
+                    <>
+                      <Cpu className="w-3.5 h-3.5" />
+                      <span>Simplify Mesh ({Math.round(targetRatio * 100)}%)</span>
+                    </>
+                  ) : hasUnappliedChanges ? (
+                    <>
+                      <Cpu className="w-3.5 h-3.5" />
+                      <span>Re-simplify ({Math.round(targetRatio * 100)}%)</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Simplified</span>
+                    </>
                   )}
                 </button>
 
+                {isSimplified && (
+                  <button
+                    type="button"
+                    disabled={isProcessing || isExporting}
+                    onClick={handleExport3MF}
+                    className="py-1.5 px-3 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-semibold text-xs flex items-center gap-1 transition-colors shadow shrink-0"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>{isExporting ? 'Downloading...' : 'Download .3MF'}</span>
+                  </button>
+                )}
+
                 <button
                   type="button"
-                  disabled={isProcessing || isExporting}
-                  onClick={handleExport3MF}
-                  className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-semibold flex items-center gap-1 transition-colors shadow"
+                  onClick={() => setIsMobileSettingsOpen(true)}
+                  className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 shrink-0"
+                  title="More settings (Paint protection, shape tolerance, filaments)"
                 >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>{isExporting ? 'Exporting...' : 'Export'}</span>
+                  <Sliders className="w-3.5 h-3.5" />
                 </button>
               </div>
             </div>
