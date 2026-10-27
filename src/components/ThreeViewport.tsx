@@ -220,36 +220,36 @@ function normalToAngles(n: [number, number, number]): { pitch: number; roll: num
 }
 
 /**
- * Creates an elongated tangential double-cone handle with a central diamond marker matching Bambu Studio / OrcaSlicer.
- * Tangential arrowheads span ~18.4mm along the local X axis, significantly wider than the snap line spacing,
- * with a distinct central diamond (rotated cube) that aligns directly with the snap spoke line.
+ * Creates a slender, precision double-cone handle with a central diamond marker matching Bambu Studio / OrcaSlicer.
+ * Slender aerodynamic arrowheads span ~11.6mm along the tangent, clearly covering the 5° tick marks,
+ * with a distinct central diamond (rotated cube) aligning with the snap spoke line.
  */
 function createSlicerDoubleConeHandle(colorHex: string): THREE.Group {
   const group = new THREE.Group();
 
-  // Central diamond marker (rotated cube)
-  const diamondGeom = new THREE.BoxGeometry(2.4, 2.4, 2.4);
+  // Central diamond marker (rotated cube) - delicate precision marker
+  const diamondGeom = new THREE.BoxGeometry(1.5, 1.5, 1.5);
   diamondGeom.rotateZ(Math.PI / 4); // Rotates in local X-Y plane to form a sharp diamond ◆
   const diamondMat = new THREE.MeshBasicMaterial({ color: colorHex, depthTest: false });
   const diamond = new THREE.Mesh(diamondGeom, diamondMat);
   diamond.renderOrder = 9999;
   group.add(diamond);
 
-  // Tangential cone arrowheads pointing in opposite directions along local X axis
-  const coneGeom = new THREE.ConeGeometry(1.3, 5.2, 16);
+  // Slender tangential cone arrowheads pointing in opposite directions along local X axis
+  const coneGeom = new THREE.ConeGeometry(0.8, 3.2, 16);
   const coneMat = new THREE.MeshBasicMaterial({ color: colorHex, depthTest: false });
 
   // Cone A (+X direction)
   const coneA = new THREE.Mesh(coneGeom, coneMat);
   coneA.rotateZ(-Math.PI / 2);
-  coneA.position.set(4.0, 0, 0);
+  coneA.position.set(2.6, 0, 0);
   coneA.renderOrder = 9999;
   group.add(coneA);
 
   // Cone B (-X direction)
   const coneB = new THREE.Mesh(coneGeom, coneMat);
   coneB.rotateZ(Math.PI / 2);
-  coneB.position.set(-4.0, 0, 0);
+  coneB.position.set(-2.6, 0, 0);
   coneB.renderOrder = 9999;
   group.add(coneB);
 
@@ -257,11 +257,38 @@ function createSlicerDoubleConeHandle(colorHex: string): THREE.Group {
 }
 
 /**
- * Builds an authentic OrcaSlicer / Bambu Studio protractor dial around the rotation axis (Image 2)
+ * Creates a crisp 1-pixel circular wire line for the rotation wheel
+ */
+function createRotationRingLine(radius: number, colorHex: string, axis: 'x' | 'y'): THREE.LineLoop {
+  const points: THREE.Vector3[] = [];
+  const segments = 128;
+  for (let i = 0; i < segments; i++) {
+    const th = (i / segments) * Math.PI * 2;
+    if (axis === 'y') {
+      points.push(new THREE.Vector3(Math.sin(th) * radius, 0, Math.cos(th) * radius));
+    } else {
+      points.push(new THREE.Vector3(0, -Math.sin(th) * radius, Math.cos(th) * radius));
+    }
+  }
+  const geom = new THREE.BufferGeometry().setFromPoints(points);
+  const mat = new THREE.LineBasicMaterial({
+    color: colorHex,
+    linewidth: 1.5,
+    transparent: true,
+    opacity: 0.85,
+    depthTest: false,
+  });
+  const line = new THREE.LineLoop(geom, mat);
+  line.renderOrder = 9999;
+  return line;
+}
+
+/**
+ * Builds an authentic OrcaSlicer / Bambu Studio protractor dial around the rotation axis
  * - axis === 'y': Dial lies in the vertical X-Z plane (around Y axis for Roll)
  * - axis === 'x': Dial lies in the vertical Y-Z plane (around X axis for Pitch)
  * Features 8 major radial spokes (every 45°), 15° medium ticks, 5° minor ticks,
- * concentric guide circle, vertical 0° reference line, and active spoke line connecting directly to handle diamond.
+ * vertical 0° reference line, and live spoke line connecting directly to handle diamond.
  */
 function createProtractorDial(radius: number, axis: 'x' | 'y', currentAngleDeg: number): THREE.Group {
   const dialGroup = new THREE.Group();
@@ -282,7 +309,7 @@ function createProtractorDial(radius: number, axis: 'x' | 'y', currentAngleDeg: 
   const outerMat = new THREE.LineBasicMaterial({
     color: '#ffffff',
     transparent: true,
-    opacity: 0.85,
+    opacity: 0.6,
     depthTest: false,
   });
   const outerLine = new THREE.Line(outerGeom, outerMat);
@@ -296,14 +323,14 @@ function createProtractorDial(radius: number, axis: 'x' | 'y', currentAngleDeg: 
     const sin = Math.sin(rad);
     const cos = Math.cos(rad);
 
-    let rIn = radius * 0.94;
+    let rIn = radius * 0.965; // Short ~1.2mm ticks
     const rOut = radius;
 
     if (deg % 45 === 0) {
-      // Major snap spoke extending deep to 0.35 * R (the 8 major snap spokes in OrcaSlicer)
-      rIn = radius * 0.35;
+      // Major snap spoke extending to 0.45 * R
+      rIn = radius * 0.45;
     } else if (deg % 15 === 0) {
-      rIn = radius * 0.88;
+      rIn = radius * 0.93; // Medium ~2.4mm ticks
     }
 
     if (axis === 'y') {
@@ -318,33 +345,12 @@ function createProtractorDial(radius: number, axis: 'x' | 'y', currentAngleDeg: 
   const ticksMat = new THREE.LineBasicMaterial({
     color: '#ffffff',
     transparent: true,
-    opacity: 0.9,
+    opacity: 0.65,
     depthTest: false,
   });
   const ticksLines = new THREE.LineSegments(ticksGeom, ticksMat);
   ticksLines.renderOrder = 9999;
   dialGroup.add(ticksLines);
-
-  // Inner hub guide circle at 0.35 * R
-  const innerPoints: THREE.Vector3[] = [];
-  for (let i = 0; i <= segments; i++) {
-    const th = (i / segments) * Math.PI * 2;
-    if (axis === 'y') {
-      innerPoints.push(new THREE.Vector3(Math.sin(th) * radius * 0.35, 0, Math.cos(th) * radius * 0.35));
-    } else {
-      innerPoints.push(new THREE.Vector3(0, -Math.sin(th) * radius * 0.35, Math.cos(th) * radius * 0.35));
-    }
-  }
-  const innerGeom = new THREE.BufferGeometry().setFromPoints(innerPoints);
-  const innerMat = new THREE.LineBasicMaterial({
-    color: '#ffffff',
-    transparent: true,
-    opacity: 0.35,
-    depthTest: false,
-  });
-  const innerLine = new THREE.Line(innerGeom, innerMat);
-  innerLine.renderOrder = 9998;
-  dialGroup.add(innerLine);
 
   // Reference 0° upright spoke line (from center to 0° top at radius R)
   const refSpokePoints = [
@@ -354,9 +360,9 @@ function createProtractorDial(radius: number, axis: 'x' | 'y', currentAngleDeg: 
   const refSpokeGeom = new THREE.BufferGeometry().setFromPoints(refSpokePoints);
   const refSpokeMat = new THREE.LineBasicMaterial({
     color: '#ffffff',
-    linewidth: 2,
+    linewidth: 1.5,
     transparent: true,
-    opacity: 0.95,
+    opacity: 0.75,
     depthTest: false,
   });
   const refSpokeLine = new THREE.Line(refSpokeGeom, refSpokeMat);
@@ -372,7 +378,7 @@ function createProtractorDial(radius: number, axis: 'x' | 'y', currentAngleDeg: 
   const liveSpokeGeom = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), liveTarget]);
   const liveSpokeMat = new THREE.LineBasicMaterial({
     color: axis === 'y' ? '#22c55e' : '#ef4444',
-    linewidth: 2,
+    linewidth: 1.5,
     depthTest: false,
   });
   const liveSpokeLine = new THREE.Line(liveSpokeGeom, liveSpokeMat);
@@ -906,19 +912,19 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
           if (verts[i + 1] < minY) minY = verts[i + 1];
           if (verts[i + 1] > maxY) maxY = verts[i + 1];
         }
-        boundX = Math.max((maxX - minX) * 1.45, 60);
-        boundY = Math.max((maxY - minY) * 1.45, 60);
+        boundX = Math.max((maxX - minX) * 1.18, 50);
+        boundY = Math.max((maxY - minY) * 1.18, 50);
       }
 
       // Convert raw cutPlaneZ to 3D scene coordinates (bottom of model rests on build plate Z=0)
       const sceneZ = cutPlaneZ - modelBounds.minZ;
 
-      // Translucent glowing emerald slicing laser plane
+      // Translucent glowing emerald slicing laser plane (sleek, light glass tint)
       const planeGeom = new THREE.PlaneGeometry(boundX, boundY);
       const planeMat = new THREE.MeshBasicMaterial({
         color: '#10b981',
         transparent: true,
-        opacity: 0.22,
+        opacity: 0.12,
         side: THREE.DoubleSide,
         depthWrite: false,
       });
@@ -934,13 +940,13 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       planeMesh.quaternion.copy(quat);
       planeGroup.add(planeMesh);
 
-      // Glowing outer border
+      // Sleek subtle outer border
       const edges = new THREE.EdgesGeometry(planeGeom);
       const edgeMat = new THREE.LineBasicMaterial({
         color: '#34d399',
-        linewidth: 2,
+        linewidth: 1.5,
         transparent: true,
-        opacity: 0.85,
+        opacity: 0.50,
       });
       const edgeLines = new THREE.LineSegments(edges, edgeMat);
       edgeLines.position.set(0, 0, sceneZ);
@@ -973,13 +979,13 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         planeGroup.add(dial);
       }
 
-      // Height Arrow Stem (Central vertical double arrow along normal)
+      // Height Arrow Stem (Central vertical double arrow along normal - compact & sleek)
       const stemGroup = new THREE.Group();
       stemGroup.position.set(0, 0, sceneZ);
       stemGroup.quaternion.copy(quat);
 
-      // Central metallic sphere
-      const sphereGeom = new THREE.SphereGeometry(3.6, 24, 24);
+      // Central metallic jewel sphere (compact, radius 1.4)
+      const sphereGeom = new THREE.SphereGeometry(1.4, 24, 24);
       const sphereMat = new THREE.MeshStandardMaterial({
         color: '#10b981',
         emissive: '#047857',
@@ -991,53 +997,43 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       sphere.renderOrder = 9999;
       stemGroup.add(sphere);
 
-      // Up and Down cones for height stem
-      const stemConeGeom = new THREE.ConeGeometry(2.4, 5.5, 16);
+      // Up and Down cones for height stem (slender arrowheads)
+      const stemConeGeom = new THREE.ConeGeometry(1.0, 3.2, 16);
       const stemConeMat = new THREE.MeshBasicMaterial({
         color: '#10b981',
         depthTest: false,
       });
       const topCone = new THREE.Mesh(stemConeGeom, stemConeMat);
-      topCone.position.set(0, 0, 12);
+      topCone.position.set(0, 0, 8.5);
       topCone.rotateX(Math.PI / 2);
       topCone.renderOrder = 9999;
       stemGroup.add(topCone);
 
       const botCone = new THREE.Mesh(stemConeGeom, stemConeMat);
-      botCone.position.set(0, 0, -12);
+      botCone.position.set(0, 0, -8.5);
       botCone.rotateX(-Math.PI / 2);
       botCone.renderOrder = 9999;
       stemGroup.add(botCone);
 
-      // Stem shaft
-      const shaftGeom = new THREE.CylinderGeometry(0.9, 0.9, 20, 12);
+      // Slender needle shaft
+      const shaftGeom = new THREE.CylinderGeometry(0.3, 0.3, 14, 12);
       shaftGeom.rotateX(Math.PI / 2);
       const shaft = new THREE.Mesh(shaftGeom, stemConeMat);
       shaft.renderOrder = 9999;
       stemGroup.add(shaft);
 
-      // Height stem invisible hitbox (cylinder)
+      // Height stem invisible hitbox (remains comfortable to click/drag)
       const hitboxMat = new THREE.MeshBasicMaterial({ visible: false });
-      const heightHitboxGeom = new THREE.CylinderGeometry(6.0, 6.0, 32, 12);
+      const heightHitboxGeom = new THREE.CylinderGeometry(6.0, 6.0, 24, 12);
       heightHitboxGeom.rotateX(Math.PI / 2);
       const heightHitbox = new THREE.Mesh(heightHitboxGeom, hitboxMat);
       stemGroup.add(heightHitbox);
       planeGroup.add(stemGroup);
       gizmoHitboxesRef.current.heightStem = heightHitbox;
 
-      // Green Roll Ring (in vertical X-Z plane around Y axis, outside dial at ringRadius)
-      const greenRingGeom = new THREE.RingGeometry(ringRadius * 0.985, ringRadius * 1.015, 64);
-      const greenRingMat = new THREE.MeshBasicMaterial({
-        color: '#22c55e',
-        side: THREE.DoubleSide,
-        depthTest: false,
-        transparent: true,
-        opacity: 0.7,
-      });
-      const greenRing = new THREE.Mesh(greenRingGeom, greenRingMat);
-      greenRing.rotation.x = Math.PI / 2; // Lies in vertical X-Z plane
+      // Green Roll Ring (crisp 1-pixel circular wire line in X-Z plane around Y axis)
+      const greenRing = createRotationRingLine(ringRadius, '#22c55e', 'y');
       greenRing.position.set(0, 0, sceneZ);
-      greenRing.renderOrder = 9999;
       planeGroup.add(greenRing);
 
       // Green handle at current roll angle on the X-Z rotation wheel
@@ -1060,33 +1056,23 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       greenHandleGroup.add(greenHandle);
 
       // Green handle hitbox
-      const rollHitboxGeom = new THREE.BoxGeometry(16, 16, 16);
+      const rollHitboxGeom = new THREE.BoxGeometry(14, 14, 14);
       const rollHitbox = new THREE.Mesh(rollHitboxGeom, hitboxMat);
       greenHandleGroup.add(rollHitbox);
       planeGroup.add(greenHandleGroup);
       gizmoHitboxesRef.current.rollHandle = rollHitbox;
 
       // Green ring hitbox in X-Z plane
-      const rollRingHitboxGeom = new THREE.TorusGeometry(ringRadius, 5, 8, 32);
+      const rollRingHitboxGeom = new THREE.TorusGeometry(ringRadius, 4.5, 8, 32);
       const rollRingHitbox = new THREE.Mesh(rollRingHitboxGeom, hitboxMat);
       rollRingHitbox.rotation.x = Math.PI / 2;
       rollRingHitbox.position.set(0, 0, sceneZ);
       planeGroup.add(rollRingHitbox);
       gizmoHitboxesRef.current.rollRing = rollRingHitbox;
 
-      // Red Pitch Ring (in vertical Y-Z plane around X axis, outside dial at ringRadius)
-      const redRingGeom = new THREE.RingGeometry(ringRadius * 0.985, ringRadius * 1.015, 64);
-      const redRingMat = new THREE.MeshBasicMaterial({
-        color: '#ef4444',
-        side: THREE.DoubleSide,
-        depthTest: false,
-        transparent: true,
-        opacity: 0.7,
-      });
-      const redRing = new THREE.Mesh(redRingGeom, redRingMat);
-      redRing.rotation.y = Math.PI / 2; // Lies in vertical Y-Z plane
+      // Red Pitch Ring (crisp 1-pixel circular wire line in Y-Z plane around X axis)
+      const redRing = createRotationRingLine(ringRadius, '#ef4444', 'x');
       redRing.position.set(0, 0, sceneZ);
-      redRing.renderOrder = 9999;
       planeGroup.add(redRing);
 
       // Red handle at current pitch angle on the Y-Z rotation wheel
@@ -1109,15 +1095,19 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       redHandleGroup.add(redHandle);
 
       // Red handle hitbox
-      const pitchHitboxGeom = new THREE.BoxGeometry(16, 16, 16);
+      const pitchHitboxGeom = new THREE.BoxGeometry(14, 14, 14);
       const pitchHitbox = new THREE.Mesh(pitchHitboxGeom, hitboxMat);
       redHandleGroup.add(pitchHitbox);
       planeGroup.add(redHandleGroup);
       gizmoHitboxesRef.current.pitchHandle = pitchHitbox;
 
       // Red ring hitbox in Y-Z plane
-      const pitchRingHitboxGeom = new THREE.TorusGeometry(ringRadius, 5, 8, 32);
+      const pitchRingHitboxGeom = new THREE.TorusGeometry(ringRadius, 4.5, 8, 32);
       const pitchRingHitbox = new THREE.Mesh(pitchRingHitboxGeom, hitboxMat);
+      pitchRingHitbox.rotation.y = Math.PI / 2;
+      pitchRingHitbox.position.set(0, 0, sceneZ);
+      planeGroup.add(pitchRingHitbox);
+      gizmoHitboxesRef.current.pitchRing = pitchRingHitbox;
       pitchRingHitbox.rotation.y = Math.PI / 2;
       pitchRingHitbox.position.set(0, 0, sceneZ);
       planeGroup.add(pitchRingHitbox);
