@@ -20,6 +20,7 @@ export interface ThreeViewportProps {
   highlightColorBorders: boolean;
   // Cut Splitter Props
   mode?: 'simplify' | 'cut';
+  simplificationTarget?: 'cut' | 'uncut';
   cutPlaneZ?: number;
   cutPlaneNormal?: [number, number, number];
   onCutPlaneZChange?: (z: number) => void;
@@ -396,6 +397,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   showWireframe,
   highlightColorBorders,
   mode = 'simplify',
+  simplificationTarget = 'uncut',
   cutPlaneZ,
   cutPlaneNormal = [0, 0, 1],
   onCutPlaneZChange,
@@ -1159,85 +1161,110 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
     if (meshes.length === 0) return;
 
-    // Mode: Cut Result Display
-    if (mode === 'cut' && cutResult) {
-      isSplitAnchoredRef.current = false;
-      const cutGroup = new THREE.Group();
+    // Mode: Cut Result Display (handles both Cut Tab and Cut Simplification)
+    const isShowingCutResult = cutResult && (mode === 'cut' || simplificationTarget === 'cut');
+    if (isShowingCutResult) {
+      const isCutSimplified = Boolean(
+        cutResult.isSimplified && cutResult.originalPartA && cutResult.originalPartB
+      );
 
-      const createPartMesh = (
-        partVerts: Float32Array,
-        partTris: Uint32Array,
-        partPaints: Uint8Array,
-        zOffset: number,
-        defaultExtruder = 1
-      ) => {
-        const geom = createPaintedBufferGeometry(
-          partVerts,
-          partTris,
-          partPaints,
-          defaultExtruder,
-          filaments
-        );
-        const mat = new THREE.MeshStandardMaterial({
-          vertexColors: true,
-          roughness: 0.55,
-          metalness: 0.08,
-          polygonOffset: showWireframe,
-          polygonOffsetFactor: 1,
-          polygonOffsetUnits: 1,
-        });
-        const meshObj = new THREE.Mesh(geom, mat);
-        meshObj.position.set(0, 0, zOffset);
-        cutGroup.add(meshObj);
+      const buildCutSubGroup = (useSimplified: boolean, xOffset: number): THREE.Group => {
+        const cutGroup = new THREE.Group();
 
-        if (showWireframe) {
-          const wireMat = new THREE.MeshBasicMaterial({
-            color: '#18181b',
-            wireframe: true,
-            transparent: true,
-            opacity: 0.35,
+        const partA =
+          useSimplified || !isCutSimplified ? cutResult.partA : cutResult.originalPartA!;
+        const partB =
+          useSimplified || !isCutSimplified ? cutResult.partB : cutResult.originalPartB!;
+
+        const createPartMesh = (
+          partVerts: Float32Array,
+          partTris: Uint32Array,
+          partPaints: Uint8Array,
+          zOffset: number,
+          defaultExtruder = 1
+        ) => {
+          const geom = createPaintedBufferGeometry(
+            partVerts,
+            partTris,
+            partPaints,
+            defaultExtruder,
+            filaments
+          );
+          const mat = new THREE.MeshStandardMaterial({
+            vertexColors: true,
+            roughness: 0.55,
+            metalness: 0.08,
+            polygonOffset: showWireframe,
+            polygonOffsetFactor: 1,
+            polygonOffsetUnits: 1,
           });
-          const wireMesh = new THREE.Mesh(geom, wireMat);
-          wireMesh.position.set(0, 0, zOffset);
-          cutGroup.add(wireMesh);
+          const meshObj = new THREE.Mesh(geom, mat);
+          meshObj.position.set(0, 0, zOffset);
+          cutGroup.add(meshObj);
+
+          if (showWireframe) {
+            const wireMat = new THREE.MeshBasicMaterial({
+              color: '#18181b',
+              wireframe: true,
+              transparent: true,
+              opacity: 0.35,
+            });
+            const wireMesh = new THREE.Mesh(geom, wireMat);
+            wireMesh.position.set(0, 0, zOffset);
+            cutGroup.add(wireMesh);
+          }
+        };
+
+        // Upper Part A (lifted upward by explodedOffset)
+        createPartMesh(partA.vertices, partA.triangles, partA.paintStates, explodedOffset);
+
+        // Lower Part B (shifted downward by explodedOffset)
+        createPartMesh(partB.vertices, partB.triangles, partB.paintStates, -explodedOffset);
+
+        // Dowel Pin if present
+        if (cutResult.dowelPin) {
+          createPartMesh(
+            cutResult.dowelPin.vertices,
+            cutResult.dowelPin.triangles,
+            cutResult.dowelPin.paintStates,
+            0,
+            2 // Contrast filament for dowel pin
+          );
         }
+
+        // Center cutGroup on build plate
+        const box = new THREE.Box3().setFromObject(cutGroup);
+        if (!box.isEmpty()) {
+          const center = new THREE.Vector3();
+          box.getCenter(center);
+          cutGroup.position.set(-center.x + xOffset, -center.y, -box.min.z);
+        }
+        return cutGroup;
       };
 
-      // Upper Part A (lifted upward by explodedOffset)
-      createPartMesh(
-        cutResult.partA.vertices,
-        cutResult.partA.triangles,
-        cutResult.partA.paintStates,
-        explodedOffset
-      );
+      if (displayMode === 'split' && isCutSimplified) {
+        isSplitAnchoredRef.current = true;
+        const tempBox = new THREE.Box3();
+        const testSub = buildCutSubGroup(false, 0);
+        tempBox.setFromObject(testSub);
+        const modelWidth = tempBox.isEmpty() ? 50 : tempBox.max.x - tempBox.min.x;
+        const modelHeight = tempBox.isEmpty() ? 40 : tempBox.max.z;
+        const spacing = Math.max(modelWidth * 0.45, 20);
+        const shiftX = (modelWidth + spacing) / 2;
 
-      // Lower Part B (shifted downward by explodedOffset)
-      createPartMesh(
-        cutResult.partB.vertices,
-        cutResult.partB.triangles,
-        cutResult.partB.paintStates,
-        -explodedOffset
-      );
+        const leftGroup = buildCutSubGroup(false, -shiftX);
+        const rightGroup = buildCutSubGroup(true, shiftX);
+        group.add(leftGroup);
+        group.add(rightGroup);
 
-      // Dowel Pin if present
-      if (cutResult.dowelPin) {
-        createPartMesh(
-          cutResult.dowelPin.vertices,
-          cutResult.dowelPin.triangles,
-          cutResult.dowelPin.paintStates,
-          0,
-          2 // Contrast filament for dowel pin
-        );
+        origAnchorRef.current.set(-shiftX, 0, modelHeight + 12);
+        simpAnchorRef.current.set(shiftX, 0, modelHeight + 12);
+      } else {
+        isSplitAnchoredRef.current = false;
+        const useSimp = displayMode === 'simplified' || !isCutSimplified;
+        const singleCutGroup = buildCutSubGroup(useSimp, 0);
+        group.add(singleCutGroup);
       }
-
-      // Center cutGroup on build plate
-      const box = new THREE.Box3().setFromObject(cutGroup);
-      if (!box.isEmpty()) {
-        const center = new THREE.Vector3();
-        box.getCenter(center);
-        cutGroup.position.set(-center.x, -center.y, -box.min.z);
-      }
-      group.add(cutGroup);
       return;
     }
 
@@ -1392,6 +1419,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     showWireframe,
     highlightColorBorders,
     mode,
+    simplificationTarget,
     cutResult,
     explodedOffset,
   ]);

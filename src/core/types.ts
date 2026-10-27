@@ -126,6 +126,7 @@ export interface CutPartMesh {
   triangles: Uint32Array;
   paintStates: Uint8Array;
   triangleCount: number;
+  originalTriangleCount?: number;
   bounds: {
     min: [number, number, number];
     max: [number, number, number];
@@ -136,6 +137,9 @@ export interface CutMeshResult {
   partA: CutPartMesh;
   partB: CutPartMesh;
   dowelPin?: CutPartMesh;
+  originalPartA?: CutPartMesh;
+  originalPartB?: CutPartMesh;
+  isSimplified?: boolean;
   crossSectionArea: number;
   cutLoopsCount: number;
   connectorsCount: number;

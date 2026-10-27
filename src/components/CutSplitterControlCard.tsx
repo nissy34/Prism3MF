@@ -48,6 +48,10 @@ interface CutSplitterControlCardProps {
   useSimplifiedForCut?: boolean;
   onToggleUseSimplifiedForCut?: (useSimp: boolean) => void;
   onCancelSimplification?: () => void;
+  targetRatio?: number;
+  onTargetRatioChange?: (ratio: number) => void;
+  onSimplifyCutParts?: (ratio?: number) => void;
+  onRevertCutSimplification?: () => void;
 }
 
 export const CutSplitterControlCard: React.FC<CutSplitterControlCardProps> = ({
@@ -74,6 +78,10 @@ export const CutSplitterControlCard: React.FC<CutSplitterControlCardProps> = ({
   useSimplifiedForCut = true,
   onToggleUseSimplifiedForCut,
   onCancelSimplification,
+  targetRatio = 0.25,
+  onTargetRatioChange,
+  onSimplifyCutParts,
+  onRevertCutSimplification,
 }) => {
   const [pitchAngle, setPitchAngle] = useState<number>(0);
   const [rollAngle, setRollAngle] = useState<number>(0);
@@ -595,8 +603,13 @@ export const CutSplitterControlCard: React.FC<CutSplitterControlCardProps> = ({
           <div className="grid grid-cols-2 gap-2 text-[11px] font-mono bg-zinc-900/60 p-2 rounded border border-zinc-800">
             <div>
               <div className="text-zinc-400">Part A (Upper)</div>
-              <div className="text-zinc-200 font-semibold">
-                {cutResult.partA.triangleCount.toLocaleString()} tris
+              <div className="text-zinc-200 font-semibold flex items-baseline gap-1">
+                <span>{cutResult.partA.triangleCount.toLocaleString()} tris</span>
+                {cutResult.originalPartA && cutResult.isSimplified && (
+                  <span className="text-[10px] text-emerald-400 font-normal">
+                    (-{Math.round((1 - cutResult.partA.triangleCount / cutResult.originalPartA.triangleCount) * 100)}%)
+                  </span>
+                )}
               </div>
               <div className="text-zinc-400 text-[10px]">
                 Z: {cutResult.partA.bounds.min[2].toFixed(1)} → {cutResult.partA.bounds.max[2].toFixed(1)}mm
@@ -604,12 +617,90 @@ export const CutSplitterControlCard: React.FC<CutSplitterControlCardProps> = ({
             </div>
             <div>
               <div className="text-zinc-400">Part B (Lower)</div>
-              <div className="text-zinc-200 font-semibold">
-                {cutResult.partB.triangleCount.toLocaleString()} tris
+              <div className="text-zinc-200 font-semibold flex items-baseline gap-1">
+                <span>{cutResult.partB.triangleCount.toLocaleString()} tris</span>
+                {cutResult.originalPartB && cutResult.isSimplified && (
+                  <span className="text-[10px] text-emerald-400 font-normal">
+                    (-{Math.round((1 - cutResult.partB.triangleCount / cutResult.originalPartB.triangleCount) * 100)}%)
+                  </span>
+                )}
               </div>
               <div className="text-zinc-400 text-[10px]">
                 Z: {cutResult.partB.bounds.min[2].toFixed(1)} → {cutResult.partB.bounds.max[2].toFixed(1)}mm
               </div>
+            </div>
+          </div>
+
+          {/* Cut Parts QEM Simplification */}
+          <div className="bg-zinc-900/90 p-3 rounded-lg border border-zinc-800 flex flex-col gap-2.5">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-semibold text-emerald-400 flex items-center gap-1.5">
+                <Sparkles className="w-4 h-4 text-emerald-400" />
+                Simplify Cut Parts (QEM)
+              </span>
+              {cutResult.isSimplified && (
+                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                  Simplified
+                </span>
+              )}
+            </div>
+
+            <p className="text-[11px] text-zinc-400">
+              Decimate cut parts while locking painted zones and planar cut cross-section seams.
+            </p>
+
+            {/* Target reduction presets */}
+            <div className="flex items-center justify-between gap-1">
+              {[
+                { label: '50% (-50%)', ratio: 0.5 },
+                { label: '25% (-75%)', ratio: 0.25 },
+                { label: '10% (-90%)', ratio: 0.1 },
+              ].map((preset) => (
+                <button
+                  key={preset.ratio}
+                  type="button"
+                  onClick={() => {
+                    onTargetRatioChange?.(preset.ratio);
+                    onSimplifyCutParts?.(preset.ratio);
+                  }}
+                  disabled={isProcessing}
+                  className={`flex-1 py-1 px-1.5 rounded text-[11px] font-medium border transition-colors cursor-pointer ${
+                    Math.abs(targetRatio - preset.ratio) < 0.01 && cutResult.isSimplified
+                      ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
+                      : 'bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 border-zinc-700/80'
+                  }`}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex gap-1.5">
+              <button
+                type="button"
+                onClick={() => onSimplifyCutParts?.(targetRatio)}
+                disabled={isProcessing}
+                className="flex-1 py-2 px-3 rounded-lg font-semibold text-xs bg-emerald-500 hover:bg-emerald-400 text-zinc-950 flex items-center justify-center gap-1.5 shadow transition-all cursor-pointer disabled:opacity-50"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                {isProcessing
+                  ? 'Decimating Cut Parts...'
+                  : cutResult.isSimplified
+                  ? `Re-Simplify Cut Parts (${Math.round((1 - targetRatio) * 100)}% off)`
+                  : `Simplify Cut Parts (${Math.round((1 - targetRatio) * 100)}% off)`}
+              </button>
+              {cutResult.isSimplified && (
+                <button
+                  type="button"
+                  onClick={onRevertCutSimplification}
+                  disabled={isProcessing}
+                  className="py-2 px-2.5 rounded-lg text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                  title="Restore original unsimplified cut parts"
+                >
+                  <RotateCcw className="w-3.5 h-3.5 text-zinc-400" />
+                  <span>Full Detail</span>
+                </button>
+              )}
             </div>
           </div>
 

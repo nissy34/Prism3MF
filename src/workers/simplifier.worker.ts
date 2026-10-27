@@ -48,6 +48,12 @@ export type WorkerRequestMessage =
       type: 'SIMPLIFY';
       jobId: number;
       options: SimplificationOptions;
+      target?: 'original' | 'cut' | 'auto';
+    }
+  | {
+      type: 'SIMPLIFY_CUT';
+      jobId: number;
+      options: SimplificationOptions;
     }
   | {
       type: 'CUT';
@@ -88,6 +94,7 @@ export type WorkerResponseMessage =
       type: 'SIMPLIFIED';
       jobId: number;
       results: SimplifiedMeshResult[];
+      cutResult?: CutMeshResult;
       elapsedMs: number;
     }
   | {
@@ -177,6 +184,126 @@ function runSimplification(jobId: number, options: SimplificationOptions): void 
     type: 'SIMPLIFIED',
     jobId,
     results,
+    elapsedMs,
+  };
+  self.postMessage(doneMsg);
+}
+
+function runCutSimplification(jobId: number, options: SimplificationOptions): void {
+  if (!latestCutResult) {
+    throw new Error('No cut parts available to simplify. Please perform a cut first.');
+  }
+
+  const t0 = performance.now();
+
+  // Preserve original pre-simplified cut parts
+  if (!latestCutResult.originalPartA) {
+    latestCutResult.originalPartA = {
+      ...latestCutResult.partA,
+      vertices: new Float32Array(latestCutResult.partA.vertices),
+      triangles: new Uint32Array(latestCutResult.partA.triangles),
+      paintStates: new Uint8Array(latestCutResult.partA.paintStates),
+      triangleCount: latestCutResult.partA.triangleCount,
+    };
+  }
+  if (!latestCutResult.originalPartB) {
+    latestCutResult.originalPartB = {
+      ...latestCutResult.partB,
+      vertices: new Float32Array(latestCutResult.partB.vertices),
+      triangles: new Uint32Array(latestCutResult.partB.triangles),
+      paintStates: new Uint8Array(latestCutResult.partB.paintStates),
+      triangleCount: latestCutResult.partB.triangleCount,
+    };
+  }
+
+  const srcA = latestCutResult.originalPartA;
+  const srcB = latestCutResult.originalPartB;
+
+  // Decimate Part A (0% -> 50% stage progress)
+  const decA = simplifyPaintedMesh(
+    srcA.vertices,
+    srcA.triangles,
+    srcA.paintStates,
+    options,
+    (meshPct) => {
+      const overallPct = Math.round(meshPct * 0.5);
+      const msg: WorkerResponseMessage = {
+        type: 'STAGE',
+        jobId,
+        stage: 'Simplifying Cut Part A (Upper)...',
+        percent: overallPct,
+      };
+      self.postMessage(msg);
+    }
+  );
+
+  latestCutResult.partA = {
+    ...srcA,
+    vertices: decA.vertices,
+    triangles: decA.triangles,
+    paintStates: decA.paintStates,
+    triangleCount: decA.triangles.length / 3,
+    originalTriangleCount: srcA.triangleCount,
+  };
+
+  // Decimate Part B (50% -> 100% stage progress)
+  const decB = simplifyPaintedMesh(
+    srcB.vertices,
+    srcB.triangles,
+    srcB.paintStates,
+    options,
+    (meshPct) => {
+      const overallPct = Math.round(50 + meshPct * 0.5);
+      const msg: WorkerResponseMessage = {
+        type: 'STAGE',
+        jobId,
+        stage: 'Simplifying Cut Part B (Lower)...',
+        percent: overallPct,
+      };
+      self.postMessage(msg);
+    }
+  );
+
+  latestCutResult.partB = {
+    ...srcB,
+    vertices: decB.vertices,
+    triangles: decB.triangles,
+    paintStates: decB.paintStates,
+    triangleCount: decB.triangles.length / 3,
+    originalTriangleCount: srcB.triangleCount,
+  };
+
+  latestCutResult.isSimplified = true;
+  const elapsedMs = Math.round(performance.now() - t0);
+
+  const results: SimplifiedMeshResult[] = [
+    {
+      modelPath: '3D/PartA.model',
+      objectId: '1',
+      vertices: decA.vertices,
+      triangles: decA.triangles,
+      paintStates: decA.paintStates,
+      originalRawTriangles: srcA.triangleCount,
+      originalExpandedTriangles: srcA.triangleCount,
+      simplifiedTriangles: decA.triangles.length / 3,
+    },
+    {
+      modelPath: '3D/PartB.model',
+      objectId: '2',
+      vertices: decB.vertices,
+      triangles: decB.triangles,
+      paintStates: decB.paintStates,
+      originalRawTriangles: srcB.triangleCount,
+      originalExpandedTriangles: srcB.triangleCount,
+      simplifiedTriangles: decB.triangles.length / 3,
+    },
+  ];
+
+  const doneMsg: WorkerResponseMessage = {
+    type: 'SIMPLIFIED',
+    jobId,
+    results,
+    cutResult: latestCutResult,
     elapsedMs,
   };
   self.postMessage(doneMsg);
@@ -273,8 +400,14 @@ self.onmessage = (event: MessageEvent<WorkerRequestMessage>) => {
       if (msg.type === 'LOAD_AND_SIMPLIFY') {
         runSimplification(msg.jobId, msg.options);
       }
+    } else if (msg.type === 'SIMPLIFY_CUT') {
+      runCutSimplification(msg.jobId, msg.options);
     } else if (msg.type === 'SIMPLIFY') {
-      runSimplification(msg.jobId, msg.options);
+      if (msg.target === 'cut') {
+        runCutSimplification(msg.jobId, msg.options);
+      } else {
+        runSimplification(msg.jobId, msg.options);
+      }
     } else if (msg.type === 'CUT') {
       runCut(msg.jobId, msg.options, msg.useSimplifiedIfAvailable);
     } else if (msg.type === 'EXPORT') {

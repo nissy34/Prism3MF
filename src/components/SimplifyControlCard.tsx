@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sliders, Cpu, CheckCircle2, Download, SlidersHorizontal, RotateCcw } from 'lucide-react';
+import { Sliders, Cpu, CheckCircle2, Download, SlidersHorizontal, RotateCcw, Scissors } from 'lucide-react';
 
 export interface SimplifyControlCardProps {
   targetRatio: number;
@@ -19,6 +19,9 @@ export interface SimplifyControlCardProps {
   isQemOptionsOpen: boolean;
   hasCustomQemSettings?: boolean;
   compact?: boolean;
+  hasCutResult?: boolean;
+  simplificationTarget?: 'cut' | 'uncut';
+  onSimplificationTargetChange?: (target: 'cut' | 'uncut') => void;
 }
 
 export function SimplifyControlCard({
@@ -39,6 +42,9 @@ export function SimplifyControlCard({
   isQemOptionsOpen,
   hasCustomQemSettings = false,
   compact = false,
+  hasCutResult = false,
+  simplificationTarget = 'uncut',
+  onSimplificationTargetChange,
 }: SimplifyControlCardProps) {
   const reductionPct = Math.round((1 - targetRatio) * 100);
 
@@ -46,6 +52,39 @@ export function SimplifyControlCard({
     // Mobile Bottom Deck style
     return (
       <div className="space-y-2.5">
+        {hasCutResult && (
+          <div className="flex items-center justify-between p-1.5 rounded-lg bg-zinc-950/80 border border-emerald-500/30 gap-1 text-[11px]">
+            <span className="font-semibold text-emerald-400 flex items-center gap-1">
+              <Scissors className="w-3 h-3" />
+              Target:
+            </span>
+            <div className="flex gap-1">
+              <button
+                type="button"
+                onClick={() => onSimplificationTargetChange?.('cut')}
+                className={`px-2 py-0.5 rounded text-[10px] font-medium border transition-colors cursor-pointer ${
+                  simplificationTarget === 'cut'
+                    ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300 font-semibold'
+                    : 'bg-zinc-900 border-zinc-800 text-zinc-400'
+                }`}
+              >
+                Cut Parts
+              </button>
+              <button
+                type="button"
+                onClick={() => onSimplificationTargetChange?.('uncut')}
+                className={`px-2 py-0.5 rounded text-[10px] font-medium border transition-colors cursor-pointer ${
+                  simplificationTarget === 'uncut'
+                    ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300 font-semibold'
+                    : 'bg-zinc-900 border-zinc-800 text-zinc-400'
+                }`}
+              >
+                Uncut Model
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Row 1: Target Ratio & Live Estimate */}
         <div className="flex items-center justify-between text-xs">
           <div className="flex items-center gap-1.5 font-medium text-zinc-200">
@@ -207,6 +246,44 @@ export function SimplifyControlCard({
           )}
         </button>
       </div>
+
+      {hasCutResult && (
+        <div className="p-2.5 rounded-lg bg-zinc-950/80 border border-emerald-500/30 flex flex-col gap-1.5 text-xs">
+          <div className="flex items-center justify-between text-[11px] font-semibold text-emerald-400">
+            <span className="flex items-center gap-1.5">
+              <Scissors className="w-3.5 h-3.5" />
+              Simplification Target
+            </span>
+            <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300">
+              Cut Active
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-1.5">
+            <button
+              type="button"
+              onClick={() => onSimplificationTargetChange?.('cut')}
+              className={`py-1.5 px-2 rounded text-[11px] font-medium border transition-colors cursor-pointer ${
+                simplificationTarget === 'cut'
+                  ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300 font-semibold shadow-xs'
+                  : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:bg-zinc-800'
+              }`}
+            >
+              Cut Parts (Upper + Lower)
+            </button>
+            <button
+              type="button"
+              onClick={() => onSimplificationTargetChange?.('uncut')}
+              className={`py-1.5 px-2 rounded text-[11px] font-medium border transition-colors cursor-pointer ${
+                simplificationTarget === 'uncut'
+                  ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300 font-semibold shadow-xs'
+                  : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:bg-zinc-800'
+              }`}
+            >
+              Original Uncut Model
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Target Ratio Slider */}
       <div className="space-y-1.5">

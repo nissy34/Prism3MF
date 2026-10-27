@@ -74,6 +74,7 @@ export function App() {
   const [cutResult, setCutResult] = useState<CutMeshResult | null>(null);
   const [explodedOffset, setExplodedOffset] = useState<number>(0);
   const [useSimplifiedForCut, setUseSimplifiedForCut] = useState<boolean>(true);
+  const [simplificationTarget, setSimplificationTarget] = useState<'cut' | 'uncut'>('cut');
 
   // Primary Simplification Control
   const [targetRatio, setTargetRatio] = useState<number>(0.25); // 25% of original triangles (75% reduction)
@@ -189,11 +190,15 @@ export function App() {
         }
       } else if (msg.type === 'CUT_DONE') {
         setCutResult(msg.result);
+        setSimplificationTarget('cut');
         setExplodedOffset(12);
         setIsProcessing(false);
         setProgress(100);
       } else if (msg.type === 'SIMPLIFIED') {
         setSimplifiedMeshes(msg.results);
+        if (msg.cutResult) {
+          setCutResult(msg.cutResult);
+        }
         setDisplayMode('simplified'); // Automatically switch to simplified view to show the result!
         setProcessingTimeMs(msg.elapsedMs);
         setIsProcessing(false);
@@ -281,14 +286,61 @@ export function App() {
       type: 'SIMPLIFY',
       jobId: nextJobId,
       options: opts,
+      target: 'original',
     };
     workerRef.current.postMessage(req);
   };
 
-  const handleCancelSimplification = () => {
-    setSimplifiedMeshes([]);
-    setDisplayMode('original');
+  const handleSimplifyCutParts = (targetRatioOverride?: number) => {
+    if (!archive || !cutResult || !workerRef.current) return;
+    const nextJobId = ++jobIdRef.current;
+    const ratioToUse = targetRatioOverride ?? targetRatio;
+    const opts: SimplificationOptions = {
+      targetRatio: ratioToUse,
+      lockColorBoundaries,
+      colorBoundaryWeight,
+      resolveSubdivisions,
+      maxGeometricError,
+      lockOpenBorders,
+    };
+    setAppliedOptions(opts);
+    setIsProcessing(true);
+    setProgressStage('Simplifying Cut Parts (Upper & Lower)...');
+    setProgress(0);
+    setErrorMsg(null);
+
+    const req: WorkerRequestMessage = {
+      type: 'SIMPLIFY_CUT',
+      jobId: nextJobId,
+      options: opts,
+    };
+    workerRef.current.postMessage(req);
+  };
+
+  const handleRevertCutSimplification = () => {
+    if (!cutResult || !cutResult.originalPartA || !cutResult.originalPartB) return;
+    setCutResult({
+      ...cutResult,
+      partA: cutResult.originalPartA,
+      partB: cutResult.originalPartB,
+      isSimplified: false,
+    });
     setAppliedOptions(null);
+  };
+
+  const handleCancelSimplification = () => {
+    if (cutResult && (toolMode === 'cut' || simplificationTarget === 'cut') && cutResult.isSimplified) {
+      handleRevertCutSimplification();
+    } else {
+      setSimplifiedMeshes([]);
+      setDisplayMode('original');
+      setAppliedOptions(null);
+    }
+  };
+
+  const handleUndoCut = () => {
+    setCutResult(null);
+    setSimplificationTarget('uncut');
   };
 
   const handleExecuteCut = () => {
@@ -334,14 +386,19 @@ export function App() {
   };
 
   const handleApplySimplification = () => {
-    triggerSimplificationWithOptions({
+    const opts: SimplificationOptions = {
       targetRatio,
       lockColorBoundaries,
       colorBoundaryWeight,
       resolveSubdivisions,
       maxGeometricError,
       lockOpenBorders,
-    });
+    };
+    if (cutResult && (toolMode === 'cut' || simplificationTarget === 'cut')) {
+      handleSimplifyCutParts(targetRatio);
+    } else {
+      triggerSimplificationWithOptions(opts);
+    }
   };
 
   const handleFileUpload = async (file: File) => {
@@ -354,6 +411,10 @@ export function App() {
   };
 
   const handleExport3MF = () => {
+    if (cutResult && (toolMode === 'cut' || simplificationTarget === 'cut')) {
+      handleExportCut('all', false);
+      return;
+    }
     if (!archive || simplifiedMeshes.length === 0 || !workerRef.current) return;
     const nextJobId = ++jobIdRef.current;
     setIsExporting(true);
@@ -379,14 +440,38 @@ export function App() {
     setLockOpenBorders(true);
   };
 
-  // Compute live statistics
+  // Compute live statistics (adapts to whether cut model or uncut model is active target)
+  const isCutActive = cutResult !== null && (toolMode === 'cut' || simplificationTarget === 'cut');
+
+  const cutBaselineTris = cutResult
+    ? (cutResult.originalPartA?.triangleCount ?? cutResult.partA.triangleCount) +
+      (cutResult.originalPartB?.triangleCount ?? cutResult.partB.triangleCount)
+    : 0;
+  const cutSimplifiedTris = cutResult?.isSimplified
+    ? cutResult.partA.triangleCount + cutResult.partB.triangleCount
+    : 0;
+
   const origRawTris = archive?.totalRawTriangles ?? 0;
   const origExpandedTris = archive?.totalExpandedTriangles ?? 0;
-  const currentSimplifiedTris = simplifiedMeshes.reduce(
+  const fullModelSimplifiedTris = simplifiedMeshes.reduce(
     (acc, m) => acc + m.simplifiedTriangles,
     0
   );
-  const baselineTris = resolveSubdivisions ? origExpandedTris : origRawTris;
+
+  const baselineTris = isCutActive
+    ? cutBaselineTris
+    : resolveSubdivisions
+      ? origExpandedTris
+      : origRawTris;
+
+  const currentSimplifiedTris = isCutActive
+    ? cutSimplifiedTris
+    : fullModelSimplifiedTris;
+
+  const isSimplified = isCutActive
+    ? Boolean(cutResult?.isSimplified)
+    : simplifiedMeshes.length > 0;
+
   const reductionPct =
     baselineTris > 0 && currentSimplifiedTris > 0
       ? Math.max(0, Math.round((1 - currentSimplifiedTris / baselineTris) * 100))
@@ -394,8 +479,6 @@ export function App() {
 
   const totalSubdividedTris =
     archive?.meshes.reduce((acc, m) => acc + m.subdividedTriangleCount, 0) ?? 0;
-
-  const isSimplified = simplifiedMeshes.length > 0;
 
   const hasUnappliedChanges =
     archive !== null &&
@@ -663,6 +746,9 @@ export function App() {
                 onToggleQemOptions={() => setIsQemOptionsOpen((v) => !v)}
                 isQemOptionsOpen={isQemOptionsOpen}
                 hasCustomQemSettings={hasCustomQemSettings}
+                hasCutResult={cutResult !== null}
+                simplificationTarget={simplificationTarget}
+                onSimplificationTargetChange={setSimplificationTarget}
               />
             ) : (
               <CutSplitterControlCard
@@ -676,7 +762,7 @@ export function App() {
                 capFaces={cutCapFaces}
                 onCapFacesChange={setCutCapFaces}
                 onExecuteCut={handleExecuteCut}
-                onUndoCut={() => setCutResult(null)}
+                onUndoCut={handleUndoCut}
                 isProcessing={isProcessing}
                 cutResult={cutResult}
                 explodedOffset={explodedOffset}
@@ -689,6 +775,10 @@ export function App() {
                 useSimplifiedForCut={useSimplifiedForCut}
                 onToggleUseSimplifiedForCut={setUseSimplifiedForCut}
                 onCancelSimplification={handleCancelSimplification}
+                targetRatio={targetRatio}
+                onTargetRatioChange={setTargetRatio}
+                onSimplifyCutParts={handleSimplifyCutParts}
+                onRevertCutSimplification={handleRevertCutSimplification}
               />
             )}
           </aside>
@@ -866,6 +956,9 @@ export function App() {
                       onToggleQemOptions={() => setIsQemOptionsOpen((v) => !v)}
                       isQemOptionsOpen={isQemOptionsOpen}
                       hasCustomQemSettings={hasCustomQemSettings}
+                      hasCutResult={cutResult !== null}
+                      simplificationTarget={simplificationTarget}
+                      onSimplificationTargetChange={setSimplificationTarget}
                       compact
                     />
                   ) : (
@@ -880,7 +973,7 @@ export function App() {
                       capFaces={cutCapFaces}
                       onCapFacesChange={setCutCapFaces}
                       onExecuteCut={handleExecuteCut}
-                      onUndoCut={() => setCutResult(null)}
+                      onUndoCut={handleUndoCut}
                       isProcessing={isProcessing}
                       cutResult={cutResult}
                       explodedOffset={explodedOffset}
@@ -893,6 +986,10 @@ export function App() {
                       useSimplifiedForCut={useSimplifiedForCut}
                       onToggleUseSimplifiedForCut={setUseSimplifiedForCut}
                       onCancelSimplification={handleCancelSimplification}
+                      targetRatio={targetRatio}
+                      onTargetRatioChange={setTargetRatio}
+                      onSimplifyCutParts={handleSimplifyCutParts}
+                      onRevertCutSimplification={handleRevertCutSimplification}
                     />
                   )}
                 </div>
@@ -1012,6 +1109,7 @@ export function App() {
               showWireframe={showWireframe}
               highlightColorBorders={highlightColorBorders}
               mode={toolMode}
+              simplificationTarget={simplificationTarget}
               cutPlaneZ={cutPlaneZ}
               cutPlaneNormal={cutPlaneNormal}
               onCutPlaneZChange={setCutPlaneZ}
