@@ -372,25 +372,6 @@ export function App() {
 
         {/* Right Header Action Buttons */}
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-          {/* QEM Algorithm Options Button (Settings) */}
-          <button
-            type="button"
-            onClick={() => setIsQemOptionsOpen((prev) => !prev)}
-            className={`relative px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors border ${
-              isQemOptionsOpen
-                ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
-                : 'bg-zinc-800/80 border-zinc-700/70 text-zinc-300 hover:bg-zinc-800'
-            }`}
-            title="Extra QEM Algorithm Options (Pin to workspace or adjust boundary constraints)"
-          >
-            <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="hidden xs:inline">QEM Options</span>
-            <span className="xs:hidden">QEM</span>
-            {hasCustomQemSettings && (
-              <span className="w-2 h-2 rounded-full bg-emerald-400 absolute -top-0.5 -right-0.5 animate-pulse" />
-            )}
-          </button>
-
           <input
             ref={fileInputRef}
             type="file"
@@ -434,103 +415,94 @@ export function App() {
             <span className="hidden sm:inline"> .3MF</span>
           </button>
 
-          <button
-            type="button"
-            disabled={!isSimplified || isProcessing || isExporting}
-            onClick={handleExport3MF}
-            className="px-2.5 sm:px-4 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 disabled:opacity-35 disabled:hover:bg-emerald-500 text-zinc-950 flex items-center gap-1.5 transition-colors shadow-xs shrink-0"
-            title={!isSimplified ? 'Simplify mesh first to download' : 'Download simplified .3MF file'}
-          >
-            <Download className="w-3.5 h-3.5 shrink-0" />
-            <span>
-              {isExporting ? (
-                'Downloading...'
-              ) : (
-                <>
-                  <span className="hidden xs:inline">Download </span>
-                  <span>.3MF</span>
-                </>
-              )}
-            </span>
-          </button>
+          {/* QEM & Download buttons: only shown when a model is loaded */}
+          {archive && (
+            <>
+              <button
+                type="button"
+                onClick={() => setIsQemOptionsOpen((prev) => !prev)}
+                className={`relative px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors border ${
+                  isQemOptionsOpen
+                    ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
+                    : 'bg-zinc-800/80 border-zinc-700/70 text-zinc-300 hover:bg-zinc-800'
+                }`}
+                title="Extra QEM Algorithm Options (Pin to workspace or adjust boundary constraints)"
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="hidden xs:inline">QEM Options</span>
+                <span className="xs:hidden">QEM</span>
+                {hasCustomQemSettings && (
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 absolute -top-0.5 -right-0.5 animate-pulse" />
+                )}
+              </button>
+
+              <button
+                type="button"
+                disabled={!isSimplified || isProcessing || isExporting}
+                onClick={handleExport3MF}
+                className="px-2.5 sm:px-4 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 disabled:opacity-35 disabled:hover:bg-emerald-500 text-zinc-950 flex items-center gap-1.5 transition-colors shadow-xs shrink-0"
+                title={!isSimplified ? 'Simplify mesh first to download' : 'Download simplified .3MF file'}
+              >
+                <Download className="w-3.5 h-3.5 shrink-0" />
+                <span>
+                  {isExporting ? (
+                    'Downloading...'
+                  ) : (
+                    <>
+                      <span className="hidden xs:inline">Download </span>
+                      <span>.3MF</span>
+                    </>
+                  )}
+                </span>
+              </button>
+            </>
+          )}
         </div>
       </header>
 
       {/* Main Workspace Layout */}
       <div className="flex flex-1 min-h-0 overflow-hidden relative">
-        {/* Desktop Left Workspace Sidebar: Telemetry + Filaments + Simplification Controls */}
-        <aside className="hidden md:flex flex-col w-84 lg:w-96 border-r border-zinc-800/90 bg-zinc-900/60 shrink-0 h-full overflow-y-auto p-3.5 space-y-3.5">
-          {archive ? (
-            <>
-              {/* Telemetry Card */}
-              <ModelTelemetryCard
-                fileName={archive.fileName}
-                fileSize={archive.fileSize}
-                baselineTris={baselineTris}
-                currentSimplifiedTris={currentSimplifiedTris}
-                isSimplified={isSimplified}
-                reductionPct={reductionPct}
-                processingTimeMs={processingTimeMs}
-                totalSubdividedTris={totalSubdividedTris}
-              />
+        {/* Desktop Left Workspace Sidebar: ONLY rendered when a model is loaded! */}
+        {archive && (
+          <aside className="hidden md:flex flex-col w-84 lg:w-96 border-r border-zinc-800/90 bg-zinc-900/60 shrink-0 h-full overflow-y-auto p-3.5 space-y-3.5 animate-in fade-in slide-in-from-left duration-200">
+            {/* Telemetry Card */}
+            <ModelTelemetryCard
+              fileName={archive.fileName}
+              fileSize={archive.fileSize}
+              baselineTris={baselineTris}
+              currentSimplifiedTris={currentSimplifiedTris}
+              isSimplified={isSimplified}
+              reductionPct={reductionPct}
+              processingTimeMs={processingTimeMs}
+              totalSubdividedTris={totalSubdividedTris}
+            />
 
-              {/* Filament Palette Card */}
-              <FilamentPaletteCard
-                filaments={filaments}
-                onFilamentColorChange={handleFilamentColorChange}
-              />
+            {/* Filament Palette Card */}
+            <FilamentPaletteCard
+              filaments={filaments}
+              onFilamentColorChange={handleFilamentColorChange}
+            />
 
-              {/* Simplification Controls Card */}
-              <SimplifyControlCard
-                targetRatio={targetRatio}
-                onTargetRatioChange={setTargetRatio}
-                baselineTris={baselineTris}
-                estimatedTargetTris={estimatedTargetTris}
-                isProcessing={isProcessing}
-                progress={progress}
-                isSimplified={isSimplified}
-                hasUnappliedChanges={hasUnappliedChanges}
-                onApplySimplification={handleApplySimplification}
-                onExport3MF={handleExport3MF}
-                isExporting={isExporting}
-                archiveLoaded={archive !== null}
-                onToggleQemOptions={() => setIsQemOptionsOpen((v) => !v)}
-                isQemOptionsOpen={isQemOptionsOpen}
-                hasCustomQemSettings={hasCustomQemSettings}
-              />
-            </>
-          ) : (
-            <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 text-center space-y-3 my-auto">
-              <div className="w-10 h-10 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mx-auto">
-                <FileBox className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-xs font-semibold text-zinc-200">No Model Loaded</h3>
-                <p className="text-[11px] text-zinc-400 mt-1 leading-relaxed">
-                  Open any painted multi-color .3MF file to view triangle telemetry, filament slots, and simplification options.
-                </p>
-              </div>
-              <div className="pt-1 flex flex-col gap-2">
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="w-full py-2 px-3 rounded-lg text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 text-zinc-950 flex items-center justify-center gap-1.5 transition-colors shadow"
-                >
-                  <Upload className="w-3.5 h-3.5" />
-                  Select .3MF File
-                </button>
-                <button
-                  type="button"
-                  onClick={handleLoadDemoModel}
-                  className="w-full py-2 px-3 rounded-lg text-xs font-medium bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 flex items-center justify-center gap-1.5 transition-colors"
-                >
-                  <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
-                  Load Demo 3MF
-                </button>
-              </div>
-            </div>
-          )}
-        </aside>
+            {/* Simplification Controls Card */}
+            <SimplifyControlCard
+              targetRatio={targetRatio}
+              onTargetRatioChange={setTargetRatio}
+              baselineTris={baselineTris}
+              estimatedTargetTris={estimatedTargetTris}
+              isProcessing={isProcessing}
+              progress={progress}
+              isSimplified={isSimplified}
+              hasUnappliedChanges={hasUnappliedChanges}
+              onApplySimplification={handleApplySimplification}
+              onExport3MF={handleExport3MF}
+              isExporting={isExporting}
+              archiveLoaded={archive !== null}
+              onToggleQemOptions={() => setIsQemOptionsOpen((v) => !v)}
+              isQemOptionsOpen={isQemOptionsOpen}
+              hasCustomQemSettings={hasCustomQemSettings}
+            />
+          </aside>
+        )}
 
         {/* Center: 3D Viewport Area */}
         <main className="flex flex-1 relative flex-col bg-zinc-950 min-w-0 h-full overflow-hidden">
@@ -811,56 +783,70 @@ export function App() {
             </div>
           )}
 
-          {/* 3D WebGL Canvas or Empty Dropzone */}
+          {/* 3D WebGL Canvas & Interactive Build Plate (Always mounted for immediate 3D scene) */}
           <div className="flex-1 w-full h-full relative">
-            {archive ? (
-              <ThreeViewport
-                meshes={archive.meshes}
-                simplifiedMeshes={simplifiedMeshes}
-                filaments={filaments}
-                displayMode={displayMode}
-                showWireframe={showWireframe}
-                highlightColorBorders={highlightColorBorders}
-              />
-            ) : (
-              !isProcessing && (
-                <div className="w-full h-full flex items-center justify-center p-4 sm:p-6 overflow-y-auto">
-                  <div className="max-w-md w-full rounded-2xl border border-dashed border-zinc-800 bg-zinc-900/40 p-5 sm:p-8 text-center space-y-4 sm:space-y-5 my-auto">
-                    <div className="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mx-auto">
-                      <Upload className="w-6 h-6" />
+            <ThreeViewport
+              meshes={archive ? archive.meshes : []}
+              simplifiedMeshes={simplifiedMeshes}
+              filaments={filaments}
+              displayMode={displayMode}
+              showWireframe={showWireframe}
+              highlightColorBorders={highlightColorBorders}
+            />
+
+            {/* Empty State Hero Card (Single unified landing card floating over the 3D build plate) */}
+            {!archive && !isProcessing && (
+              <div className="absolute inset-0 flex items-center justify-center p-4 sm:p-6 pointer-events-none">
+                <div className="max-w-lg w-full rounded-2xl border border-zinc-700/60 bg-zinc-900/90 backdrop-blur-xl p-6 sm:p-8 text-center space-y-5 shadow-2xl pointer-events-auto">
+                  <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mx-auto shadow-inner">
+                    <Layers className="w-7 h-7" />
+                  </div>
+
+                  <div className="space-y-2">
+                    <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-zinc-100">
+                      Simplify Multi-Color 3MF Files
+                    </h2>
+                    <p className="text-xs sm:text-sm text-zinc-400 leading-relaxed max-w-sm mx-auto">
+                      Decimate dense high-poly meshes up to 90% while strictly locking painted filament zones, logos, and brush strokes.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="w-full sm:w-auto px-5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold bg-emerald-500 hover:bg-emerald-400 text-zinc-950 flex items-center justify-center gap-2 transition-all shadow-lg shadow-emerald-500/20 hover:scale-[1.02]"
+                    >
+                      <Upload className="w-4 h-4" />
+                      Select .3MF File
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleLoadDemoModel}
+                      className="w-full sm:w-auto px-4 py-2.5 rounded-xl text-xs sm:text-sm font-medium bg-zinc-800/90 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 flex items-center justify-center gap-2 transition-colors hover:scale-[1.02]"
+                    >
+                      <Sparkles className="w-4 h-4 text-emerald-400" />
+                      Try Demo Model
+                    </button>
+                  </div>
+
+                  {/* Highlights pills */}
+                  <div className="grid grid-cols-3 gap-2 pt-3 border-t border-zinc-800/70 text-[11px] text-zinc-400">
+                    <div className="flex flex-col items-center gap-0.5">
+                      <span className="text-emerald-400 font-semibold">Color-Locked</span>
+                      <span className="text-[10px] text-zinc-500">Zero color bleed</span>
                     </div>
-                    <div className="space-y-1.5">
-                      <h2 className="text-base font-semibold text-zinc-100">
-                        Open or Drop a Painted .3MF File
-                      </h2>
-                      <p className="text-xs text-zinc-400 leading-relaxed">
-                        Decimate high-poly 3MF meshes up to 90% right in your browser while locking multi-color filament paint boundaries (<code className="text-zinc-300 font-mono">paint_color</code> &amp; <code className="text-zinc-300 font-mono">mmu_segmentation</code>).
-                      </p>
+                    <div className="flex flex-col items-center gap-0.5 border-x border-zinc-800/70">
+                      <span className="text-emerald-400 font-semibold">Fast QEM</span>
+                      <span className="text-[10px] text-zinc-500">Up to 90% smaller</span>
                     </div>
-                    <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5 sm:gap-3 pt-1">
-                      <button
-                        type="button"
-                        onClick={() => fileInputRef.current?.click()}
-                        className="w-full sm:w-auto px-4 py-2.5 sm:py-2 rounded-lg text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 text-zinc-950 flex items-center justify-center gap-2 transition-colors shadow"
-                      >
-                        <Upload className="w-3.5 h-3.5" />
-                        Select .3MF File
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleLoadDemoModel}
-                        className="w-full sm:w-auto px-3.5 py-2.5 sm:py-2 rounded-lg text-xs font-medium bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 flex items-center justify-center gap-1.5 transition-colors"
-                      >
-                        <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
-                        Try Demo Model
-                      </button>
-                    </div>
-                    <div className="text-[11px] text-zinc-500 pt-1">
-                      100% client-side processing — your 3MF files never leave your device.
+                    <div className="flex flex-col items-center gap-0.5">
+                      <span className="text-emerald-400 font-semibold">100% Private</span>
+                      <span className="text-[10px] text-zinc-500">Client-side WASM</span>
                     </div>
                   </div>
                 </div>
-              )
+              </div>
             )}
           </div>
 
