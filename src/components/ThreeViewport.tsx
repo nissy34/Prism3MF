@@ -419,10 +419,10 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
         if (showWireframe) {
           const wireMat = new THREE.MeshBasicMaterial({
-            color: displayMode === 'split' ? (useSimplified ? '#10b981' : '#52525b') : '#18181b',
+            color: '#18181b',
             wireframe: true,
             transparent: true,
-            opacity: displayMode === 'split' && useSimplified ? 0.48 : 0.38,
+            opacity: 0.38,
           });
           const wireMesh = new THREE.Mesh(geom, wireMat);
           subGroup.add(wireMesh);
