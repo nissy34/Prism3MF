@@ -4,18 +4,25 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import {
   FilamentInfo,
   SimplifiedMeshResult,
+  CutMeshResult,
 } from '../core/types';
 import type { LightweightMeshInfo } from '../workers/simplifier.worker';
 
 export type ViewportDisplayMode = 'simplified' | 'original' | 'split';
 
-interface ThreeViewportProps {
+export interface ThreeViewportProps {
   meshes: LightweightMeshInfo[];
   simplifiedMeshes: SimplifiedMeshResult[];
   filaments: FilamentInfo[];
   displayMode: ViewportDisplayMode;
   showWireframe: boolean;
   highlightColorBorders: boolean;
+  // Cut Splitter Props
+  mode?: 'simplify' | 'cut';
+  cutPlaneZ?: number;
+  cutPlaneNormal?: [number, number, number];
+  cutResult?: CutMeshResult | null;
+  explodedOffset?: number;
 }
 
 /**
@@ -194,12 +201,18 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   displayMode,
   showWireframe,
   highlightColorBorders,
+  mode = 'simplify',
+  cutPlaneZ,
+  cutPlaneNormal = [0, 0, 1],
+  cutResult,
+  explodedOffset = 0,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
   const modelGroupRef = useRef<THREE.Group | null>(null);
+  const cutPlaneHelperRef = useRef<THREE.Group | null>(null);
   const lastMeshKeyRef = useRef<string>('');
   const displayModeRef = useRef<ViewportDisplayMode>(displayMode);
   displayModeRef.current = displayMode;
@@ -248,7 +261,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     controls.update();
     controlsRef.current = controls;
 
-    // Studio Lighting (balanced so flat vertex colors read clearly from every angle)
+    // Studio Lighting
     const ambientLight = new THREE.AmbientLight(0xffffff, 1.35);
     scene.add(ambientLight);
 
@@ -264,7 +277,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     rimLight.position.set(0, 140, -60);
     scene.add(rimLight);
 
-    // OrcaSlicer / Bambu Studio 256x256mm PEI Build Plate Grid on Z=0 plane
+    // OrcaSlicer / Bambu Studio 256x256mm Build Plate Grid on Z=0
     const plateSize = 256;
     const gridHelper = new THREE.GridHelper(
       plateSize,
@@ -272,7 +285,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       new THREE.Color('#10b981'),
       new THREE.Color('#27272a')
     );
-    gridHelper.rotation.x = Math.PI / 2; // Align grid to XY plane (Z=0)
+    gridHelper.rotation.x = Math.PI / 2;
     gridHelper.position.set(0, 0, -0.05);
     scene.add(gridHelper);
 
@@ -292,20 +305,23 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     scene.add(modelGroup);
     modelGroupRef.current = modelGroup;
 
+    // Dedicated group for cut plane visualizer
+    const cutPlaneHelper = new THREE.Group();
+    scene.add(cutPlaneHelper);
+    cutPlaneHelperRef.current = cutPlaneHelper;
+
     let animId = 0;
     const animate = () => {
       animId = requestAnimationFrame(animate);
       controls.update();
       renderer.render(scene, camera);
 
-      // Project 3D anchored positions directly above each model in Split View
       if (isSplitAnchoredRef.current && displayModeRef.current === 'split') {
         const updateBadge = (anchor: THREE.Vector3, el: HTMLDivElement | null) => {
           if (!el || !container) return;
           const v = anchor.clone();
           v.project(camera);
 
-          // If point is behind camera near plane, hide badge
           if (v.z > 1) {
             el.style.display = 'none';
             return;
@@ -357,14 +373,77 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     };
   }, []);
 
-  // Rebuild 3D meshes when model, simplification result, filament colors, or display toggles change
+  // Update Cutting Plane Visualizer Helper
+  useEffect(() => {
+    const planeGroup = cutPlaneHelperRef.current;
+    if (!planeGroup) return;
+
+    while (planeGroup.children.length > 0) {
+      const child = planeGroup.children[0];
+      planeGroup.remove(child);
+      child.traverse((obj) => {
+        if ((obj as THREE.Mesh).geometry) (obj as THREE.Mesh).geometry.dispose();
+        if ((obj as THREE.Mesh).material) {
+          const mat = (obj as THREE.Mesh).material;
+          if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+          else mat.dispose();
+        }
+      });
+    }
+
+    if (mode === 'cut' && cutPlaneZ !== undefined && !cutResult) {
+      // Find model footprint to scale cut plane nicely
+      let boundX = 80;
+      let boundY = 80;
+      if (meshes.length > 0) {
+        const verts = meshes[0].expandedVertices;
+        let minX = Infinity, maxX = -Infinity;
+        let minY = Infinity, maxY = -Infinity;
+        for (let i = 0; i < verts.length; i += 3) {
+          if (verts[i] < minX) minX = verts[i];
+          if (verts[i] > maxX) maxX = verts[i];
+          if (verts[i + 1] < minY) minY = verts[i + 1];
+          if (verts[i + 1] > maxY) maxY = verts[i + 1];
+        }
+        boundX = Math.max((maxX - minX) * 1.45, 60);
+        boundY = Math.max((maxY - minY) * 1.45, 60);
+      }
+
+      // Translucent glowing emerald slicing laser plane
+      const planeGeom = new THREE.PlaneGeometry(boundX, boundY);
+      const planeMat = new THREE.MeshBasicMaterial({
+        color: '#10b981',
+        transparent: true,
+        opacity: 0.22,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      const planeMesh = new THREE.Mesh(planeGeom, planeMat);
+      planeMesh.position.set(0, 0, cutPlaneZ);
+      planeGroup.add(planeMesh);
+
+      // Glowing outer border
+      const edges = new THREE.EdgesGeometry(planeGeom);
+      const edgeMat = new THREE.LineBasicMaterial({
+        color: '#34d399',
+        linewidth: 2,
+        transparent: true,
+        opacity: 0.85,
+      });
+      const edgeLines = new THREE.LineSegments(edges, edgeMat);
+      edgeLines.position.set(0, 0, cutPlaneZ);
+      planeGroup.add(edgeLines);
+    }
+  }, [mode, cutPlaneZ, cutResult, meshes]);
+
+  // Rebuild 3D meshes when model, simplification result, or cut result changes
   useEffect(() => {
     const group = modelGroupRef.current;
     const camera = cameraRef.current;
     const controls = controlsRef.current;
     if (!group || !camera || !controls) return;
 
-    // Dispose previous meshes/geometries/materials
+    // Dispose previous meshes
     while (group.children.length > 0) {
       const child = group.children[0];
       group.remove(child);
@@ -382,6 +461,89 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
     if (meshes.length === 0) return;
 
+    // Mode: Cut Result Display
+    if (mode === 'cut' && cutResult) {
+      isSplitAnchoredRef.current = false;
+      const cutGroup = new THREE.Group();
+
+      const createPartMesh = (
+        partVerts: Float32Array,
+        partTris: Uint32Array,
+        partPaints: Uint8Array,
+        zOffset: number,
+        defaultExtruder = 1
+      ) => {
+        const geom = createPaintedBufferGeometry(
+          partVerts,
+          partTris,
+          partPaints,
+          defaultExtruder,
+          filaments
+        );
+        const mat = new THREE.MeshStandardMaterial({
+          vertexColors: true,
+          roughness: 0.55,
+          metalness: 0.08,
+          polygonOffset: showWireframe,
+          polygonOffsetFactor: 1,
+          polygonOffsetUnits: 1,
+        });
+        const meshObj = new THREE.Mesh(geom, mat);
+        meshObj.position.set(0, 0, zOffset);
+        cutGroup.add(meshObj);
+
+        if (showWireframe) {
+          const wireMat = new THREE.MeshBasicMaterial({
+            color: '#18181b',
+            wireframe: true,
+            transparent: true,
+            opacity: 0.35,
+          });
+          const wireMesh = new THREE.Mesh(geom, wireMat);
+          wireMesh.position.set(0, 0, zOffset);
+          cutGroup.add(wireMesh);
+        }
+      };
+
+      // Upper Part A (lifted upward by explodedOffset)
+      createPartMesh(
+        cutResult.partA.vertices,
+        cutResult.partA.triangles,
+        cutResult.partA.paintStates,
+        explodedOffset
+      );
+
+      // Lower Part B (shifted downward by explodedOffset)
+      createPartMesh(
+        cutResult.partB.vertices,
+        cutResult.partB.triangles,
+        cutResult.partB.paintStates,
+        -explodedOffset
+      );
+
+      // Dowel Pin if present
+      if (cutResult.dowelPin) {
+        createPartMesh(
+          cutResult.dowelPin.vertices,
+          cutResult.dowelPin.triangles,
+          cutResult.dowelPin.paintStates,
+          0,
+          2 // Contrast filament for dowel pin
+        );
+      }
+
+      // Center cutGroup on build plate
+      const box = new THREE.Box3().setFromObject(cutGroup);
+      if (!box.isEmpty()) {
+        const center = new THREE.Vector3();
+        box.getCenter(center);
+        cutGroup.position.set(-center.x, -center.y, -box.min.z);
+      }
+      group.add(cutGroup);
+      return;
+    }
+
+    // Mode: Simplify / Standard Display
     const buildSubGroup = (useSimplified: boolean, xOffset: number): THREE.Group => {
       const subGroup = new THREE.Group();
 
@@ -390,12 +552,9 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
           (s) => s.modelPath === m.modelPath && s.objectId === m.objectId
         );
 
-        const verts =
-          useSimplified && sm ? sm.vertices : m.expandedVertices;
-        const tris =
-          useSimplified && sm ? sm.triangles : m.expandedTriangles;
-        const states =
-          useSimplified && sm ? sm.paintStates : m.expandedPaintStates;
+        const verts = useSimplified && sm ? sm.vertices : m.expandedVertices;
+        const tris = useSimplified && sm ? sm.triangles : m.expandedTriangles;
+        const states = useSimplified && sm ? sm.paintStates : m.expandedPaintStates;
 
         const geom = createPaintedBufferGeometry(
           verts,
@@ -439,29 +598,22 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         }
       }
 
-      // Center XY on the build plate and place bottom at Z=0
+      // Center XY on build plate and place bottom at Z=0
       const box = new THREE.Box3().setFromObject(subGroup);
       if (!box.isEmpty()) {
         const center = new THREE.Vector3();
         box.getCenter(center);
-        subGroup.position.set(
-          -center.x + xOffset,
-          -center.y,
-          -box.min.z
-        );
+        subGroup.position.set(-center.x + xOffset, -center.y, -box.min.z);
       }
 
       return subGroup;
     };
 
-    // Measure single-model width for side-by-side split view spacing
     const tempBox = new THREE.Box3();
     for (const m of meshes) {
       const verts = m.expandedVertices;
       for (let i = 0; i < verts.length; i += 3) {
-        tempBox.expandByPoint(
-          new THREE.Vector3(verts[i], verts[i + 1], verts[i + 2])
-        );
+        tempBox.expandByPoint(new THREE.Vector3(verts[i], verts[i + 1], verts[i + 2]));
       }
     }
     const size = new THREE.Vector3();
@@ -469,13 +621,11 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     const splitOffset = Math.max(size.x * 0.72, 32);
 
     if (displayMode === 'split') {
-      // Side-by-side split comparison
       const origGroup = buildSubGroup(false, -splitOffset);
       const simpGroup = buildSubGroup(true, splitOffset);
       group.add(origGroup);
       group.add(simpGroup);
 
-      // Measure bounding boxes to anchor 3D badges right above each model
       const origB = new THREE.Box3().setFromObject(origGroup);
       const simpB = new THREE.Box3().setFromObject(simpGroup);
       const maxZ = Math.max(origB.max.z, simpB.max.z, 20);
@@ -484,11 +634,9 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       simpAnchorRef.current.set(splitOffset, 0, maxZ + 8);
       isSplitAnchoredRef.current = true;
 
-      // Add build plate pedestal rings under each model on Z=0
       const ringRadius = Math.max(size.x * 0.45, 18);
       const ringGeom = new THREE.RingGeometry(ringRadius * 0.9, ringRadius, 48);
 
-      // Slate pedestal under Original
       const origRingMat = new THREE.MeshBasicMaterial({
         color: '#71717a',
         side: THREE.DoubleSide,
@@ -499,7 +647,6 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       origRing.position.set(-splitOffset, 0, 0.05);
       group.add(origRing);
 
-      // Emerald glowing pedestal under Simplified
       const simpRingMat = new THREE.MeshBasicMaterial({
         color: '#10b981',
         side: THREE.DoubleSide,
@@ -518,7 +665,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       }
     }
 
-    // Auto-frame camera when a new 3MF file is loaded
+    // Auto-frame camera on new model
     const meshKey = `${meshes.map((m) => m.name).join('|')}_${meshes[0]?.rawTriangleCount}`;
     if (meshKey !== lastMeshKeyRef.current) {
       lastMeshKeyRef.current = meshKey;
@@ -546,17 +693,13 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     displayMode,
     showWireframe,
     highlightColorBorders,
+    mode,
+    cutResult,
+    explodedOffset,
   ]);
 
-  // Compute total triangle counts for 3D-anchored badges
-  const totalOrigTris = meshes.reduce(
-    (acc, m) => acc + m.expandedTriangles.length / 3,
-    0
-  );
-  const totalSimpTris = simplifiedMeshes.reduce(
-    (acc, m) => acc + m.simplifiedTriangles,
-    0
-  );
+  const totalOrigTris = meshes.reduce((acc, m) => acc + m.expandedTriangles.length / 3, 0);
+  const totalSimpTris = simplifiedMeshes.reduce((acc, m) => acc + m.simplifiedTriangles, 0);
   const reductionPct =
     totalOrigTris > 0 && totalSimpTris > 0
       ? Math.max(0, Math.round((1 - totalSimpTris / totalOrigTris) * 100))
@@ -564,7 +707,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
   return (
     <div ref={containerRef} className="relative w-full h-full select-none touch-none overflow-hidden">
-      {/* 3D-Anchored Floating Badge: Original Mesh (Moves with 3D model in real time) */}
+      {/* 3D-Anchored Badges for Split View */}
       <div
         ref={origLabelRef}
         style={{ display: 'none', position: 'absolute', top: 0, left: 0 }}
@@ -575,7 +718,6 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         <span className="font-mono text-zinc-400">({totalOrigTris.toLocaleString()} tris)</span>
       </div>
 
-      {/* 3D-Anchored Floating Badge: Simplified Mesh (Moves with 3D model in real time) */}
       <div
         ref={simpLabelRef}
         style={{ display: 'none', position: 'absolute', top: 0, left: 0 }}

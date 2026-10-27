@@ -18,11 +18,14 @@ import {
   ChevronDown,
   ChevronUp,
   Github,
+  Scissors,
 } from 'lucide-react';
 import {
   SimplificationOptions,
   SimplifiedMeshResult,
   FilamentInfo,
+  CutConnectorOptions,
+  CutMeshResult,
 } from './core';
 import { generateSample3MF } from './core/sample3mfGenerator';
 import {
@@ -32,6 +35,7 @@ import {
 import { ModelTelemetryCard } from './components/ModelTelemetryCard';
 import { FilamentPaletteCard } from './components/FilamentPaletteCard';
 import { SimplifyControlCard } from './components/SimplifyControlCard';
+import { CutSplitterControlCard } from './components/CutSplitterControlCard';
 import { QemOptionsPanel } from './components/QemOptionsPanel';
 import type {
   LightweightMeshInfo,
@@ -52,6 +56,23 @@ export function App() {
   const [archive, setArchive] = useState<LoadedArchiveSummary | null>(null);
   const [filaments, setFilaments] = useState<FilamentInfo[]>([]);
   const [simplifiedMeshes, setSimplifiedMeshes] = useState<SimplifiedMeshResult[]>([]);
+
+  // Active Tool Mode
+  const [toolMode, setToolMode] = useState<'simplify' | 'cut'>('simplify');
+
+  // Planar Cut Splitter State
+  const [cutPlaneZ, setCutPlaneZ] = useState<number>(25.0);
+  const [cutPlaneNormal, setCutPlaneNormal] = useState<[number, number, number]>([0, 0, 1]);
+  const [cutCapFaces, setCutCapFaces] = useState<boolean>(true);
+  const [cutConnectors, setCutConnectors] = useState<CutConnectorOptions>({
+    enabled: true,
+    style: 'dowel_sockets',
+    diameter: 5.0,
+    length: 8.0,
+    tolerance: 0.2,
+  });
+  const [cutResult, setCutResult] = useState<CutMeshResult | null>(null);
+  const [explodedOffset, setExplodedOffset] = useState<number>(0);
 
   // Primary Simplification Control
   const [targetRatio, setTargetRatio] = useState<number>(0.25); // 25% of original triangles (75% reduction)
@@ -95,6 +116,28 @@ export function App() {
   const targetRatioRef = useRef<number>(0.25);
   targetRatioRef.current = targetRatio;
 
+  const meshBounds = React.useMemo(() => {
+    if (!archive || archive.meshes.length === 0) {
+      return { min: [0, 0, 0] as [number, number, number], max: [0, 0, 50] as [number, number, number] };
+    }
+    const verts = archive.meshes[0].expandedVertices;
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    for (let i = 0; i < verts.length; i += 3) {
+      const x = verts[i], y = verts[i + 1], z = verts[i + 2];
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (z < minZ) minZ = z;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+      if (z > maxZ) maxZ = z;
+    }
+    return {
+      min: [minX, minY, minZ] as [number, number, number],
+      max: [maxX, maxY, maxZ] as [number, number, number],
+    };
+  }, [archive]);
+
   const createWorker = useCallback(() => {
     if (workerRef.current) {
       workerRef.current.terminate();
@@ -127,10 +170,27 @@ export function App() {
         setAppliedOptions(null);
         setIsProcessing(false);
         setProgress(100);
+        const verts = msg.meshes[0]?.expandedVertices;
+        if (verts && verts.length > 0) {
+          let minZ = Infinity, maxZ = -Infinity;
+          for (let i = 2; i < verts.length; i += 3) {
+            if (verts[i] < minZ) minZ = verts[i];
+            if (verts[i] > maxZ) maxZ = verts[i];
+          }
+          setCutPlaneZ(Number(((minZ + maxZ) / 2).toFixed(1)));
+        }
+        setCutResult(null);
+        setExplodedOffset(0);
+
         // Auto-disable wireframe on huge 500k+ triangle models so initial render is silky-smooth
         if (msg.totalRawTriangles > 200000) {
           setShowWireframe(false);
         }
+      } else if (msg.type === 'CUT_DONE') {
+        setCutResult(msg.result);
+        setExplodedOffset(12);
+        setIsProcessing(false);
+        setProgress(100);
       } else if (msg.type === 'SIMPLIFIED') {
         setSimplifiedMeshes(msg.results);
         setDisplayMode('simplified'); // Automatically switch to simplified view to show the result!
@@ -147,7 +207,7 @@ export function App() {
         const baseName = archiveFileNameRef.current.replace(/\.3mf$/i, '');
         const pct = Math.round(targetRatioRef.current * 100);
         a.href = url;
-        a.download = `${baseName}_simplified_${pct}pct.3mf`;
+        a.download = msg.suggestedFileName || `${baseName}_simplified_${pct}pct.3mf`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -220,6 +280,44 @@ export function App() {
       type: 'SIMPLIFY',
       jobId: nextJobId,
       options: opts,
+    };
+    workerRef.current.postMessage(req);
+  };
+
+  const handleExecuteCut = () => {
+    if (!archive || !workerRef.current) return;
+    const nextJobId = ++jobIdRef.current;
+    setIsProcessing(true);
+    setProgressStage('Slicing Painted Mesh & Generating Alignment Dowels...');
+    setProgress(30);
+    setErrorMsg(null);
+
+    const req: WorkerRequestMessage = {
+      type: 'CUT',
+      jobId: nextJobId,
+      options: {
+        planePoint: [0, 0, cutPlaneZ],
+        planeNormal: cutPlaneNormal,
+        capFaces: cutCapFaces,
+        capPaintSlot: 1,
+        connectors: cutConnectors,
+      },
+      useSimplifiedIfAvailable: isSimplified,
+    };
+    workerRef.current.postMessage(req);
+  };
+
+  const handleExportCut = (partType: 'all' | 'partA' | 'partB' | 'dowel') => {
+    if (!archive || !cutResult || !workerRef.current) return;
+    const nextJobId = ++jobIdRef.current;
+    setIsExporting(true);
+    setProgressStage('Packaging Cut Parts .3MF Archive...');
+    setProgress(40);
+
+    const req: WorkerRequestMessage = {
+      type: 'EXPORT_CUT',
+      jobId: nextJobId,
+      partType,
     };
     workerRef.current.postMessage(req);
   };
