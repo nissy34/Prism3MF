@@ -803,7 +803,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         transformControlsRef.current.detach();
       }
     }
-  }, [mode, cutPlaneZ, cutPlaneNormal, cutResult, meshes, modelBounds.minZ]);
+  }, [mode, cutPlaneZ, cutPlaneNormal, cutResult, meshes, modelBounds.minZ, gizmoMode]);
 
   // Rebuild 3D meshes when model, simplification result, or cut result changes
   useEffect(() => {
