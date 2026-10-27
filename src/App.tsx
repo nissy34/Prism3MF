@@ -447,6 +447,43 @@ export function App() {
           </div>
         </div>
 
+        {/* Tool Mode Switcher Tabs */}
+        <div className="flex items-center p-1 bg-zinc-950/90 rounded-xl border border-zinc-800 shadow-inner">
+          <button
+            type="button"
+            onClick={() => setToolMode('simplify')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+              toolMode === 'simplify'
+                ? 'bg-emerald-500 text-zinc-950 shadow-md'
+                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Simplify (QEM)</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setToolMode('cut')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+              toolMode === 'cut'
+                ? 'bg-emerald-500 text-zinc-950 shadow-md'
+                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
+            }`}
+          >
+            <Scissors className="w-3.5 h-3.5" />
+            <span>Split / Cut</span>
+            <span
+              className={`text-[9px] font-mono px-1 py-0.2 rounded font-bold ${
+                toolMode === 'cut'
+                  ? 'bg-zinc-950/30 text-zinc-950'
+                  : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+              }`}
+            >
+              NEW
+            </span>
+          </button>
+        </div>
+
         {/* Center telemetry pill on desktop when file is loaded */}
         {archive && (
           <div className="hidden lg:flex items-center gap-2 px-3 py-1 rounded-full bg-zinc-950/80 border border-zinc-800 text-xs">
@@ -594,24 +631,45 @@ export function App() {
               onFilamentColorChange={handleFilamentColorChange}
             />
 
-            {/* Simplification Controls Card */}
-            <SimplifyControlCard
-              targetRatio={targetRatio}
-              onTargetRatioChange={setTargetRatio}
-              baselineTris={baselineTris}
-              estimatedTargetTris={estimatedTargetTris}
-              isProcessing={isProcessing}
-              progress={progress}
-              isSimplified={isSimplified}
-              hasUnappliedChanges={hasUnappliedChanges}
-              onApplySimplification={handleApplySimplification}
-              onExport3MF={handleExport3MF}
-              isExporting={isExporting}
-              archiveLoaded={archive !== null}
-              onToggleQemOptions={() => setIsQemOptionsOpen((v) => !v)}
-              isQemOptionsOpen={isQemOptionsOpen}
-              hasCustomQemSettings={hasCustomQemSettings}
-            />
+            {/* Mode: Simplify vs Cut Splitter */}
+            {toolMode === 'simplify' ? (
+              <SimplifyControlCard
+                targetRatio={targetRatio}
+                onTargetRatioChange={setTargetRatio}
+                baselineTris={baselineTris}
+                estimatedTargetTris={estimatedTargetTris}
+                isProcessing={isProcessing}
+                progress={progress}
+                isSimplified={isSimplified}
+                hasUnappliedChanges={hasUnappliedChanges}
+                onApplySimplification={handleApplySimplification}
+                onExport3MF={handleExport3MF}
+                isExporting={isExporting}
+                archiveLoaded={archive !== null}
+                onToggleQemOptions={() => setIsQemOptionsOpen((v) => !v)}
+                isQemOptionsOpen={isQemOptionsOpen}
+                hasCustomQemSettings={hasCustomQemSettings}
+              />
+            ) : (
+              <CutSplitterControlCard
+                meshBounds={meshBounds}
+                cutPlaneZ={cutPlaneZ}
+                onCutPlaneZChange={setCutPlaneZ}
+                cutPlaneNormal={cutPlaneNormal}
+                onCutPlaneNormalChange={setCutPlaneNormal}
+                connectorOptions={cutConnectors}
+                onConnectorOptionsChange={setCutConnectors}
+                capFaces={cutCapFaces}
+                onCapFacesChange={setCutCapFaces}
+                onExecuteCut={handleExecuteCut}
+                isProcessing={isProcessing}
+                cutResult={cutResult}
+                explodedOffset={explodedOffset}
+                onExplodedOffsetChange={setExplodedOffset}
+                onExport={handleExportCut}
+                isExporting={isExporting}
+              />
+            )}
           </aside>
         )}
 
@@ -768,25 +826,46 @@ export function App() {
                     compact
                   />
 
-                  {/* Simplification Slider, Presets & Actions */}
-                  <SimplifyControlCard
-                    targetRatio={targetRatio}
-                    onTargetRatioChange={setTargetRatio}
-                    baselineTris={baselineTris}
-                    estimatedTargetTris={estimatedTargetTris}
-                    isProcessing={isProcessing}
-                    progress={progress}
-                    isSimplified={isSimplified}
-                    hasUnappliedChanges={hasUnappliedChanges}
-                    onApplySimplification={handleApplySimplification}
-                    onExport3MF={handleExport3MF}
-                    isExporting={isExporting}
-                    archiveLoaded={archive !== null}
-                    onToggleQemOptions={() => setIsQemOptionsOpen((v) => !v)}
-                    isQemOptionsOpen={isQemOptionsOpen}
-                    hasCustomQemSettings={hasCustomQemSettings}
-                    compact
-                  />
+                  {/* Mode: Simplify vs Cut Splitter */}
+                  {toolMode === 'simplify' ? (
+                    <SimplifyControlCard
+                      targetRatio={targetRatio}
+                      onTargetRatioChange={setTargetRatio}
+                      baselineTris={baselineTris}
+                      estimatedTargetTris={estimatedTargetTris}
+                      isProcessing={isProcessing}
+                      progress={progress}
+                      isSimplified={isSimplified}
+                      hasUnappliedChanges={hasUnappliedChanges}
+                      onApplySimplification={handleApplySimplification}
+                      onExport3MF={handleExport3MF}
+                      isExporting={isExporting}
+                      archiveLoaded={archive !== null}
+                      onToggleQemOptions={() => setIsQemOptionsOpen((v) => !v)}
+                      isQemOptionsOpen={isQemOptionsOpen}
+                      hasCustomQemSettings={hasCustomQemSettings}
+                      compact
+                    />
+                  ) : (
+                    <CutSplitterControlCard
+                      meshBounds={meshBounds}
+                      cutPlaneZ={cutPlaneZ}
+                      onCutPlaneZChange={setCutPlaneZ}
+                      cutPlaneNormal={cutPlaneNormal}
+                      onCutPlaneNormalChange={setCutPlaneNormal}
+                      connectorOptions={cutConnectors}
+                      onConnectorOptionsChange={setCutConnectors}
+                      capFaces={cutCapFaces}
+                      onCapFacesChange={setCutCapFaces}
+                      onExecuteCut={handleExecuteCut}
+                      isProcessing={isProcessing}
+                      cutResult={cutResult}
+                      explodedOffset={explodedOffset}
+                      onExplodedOffsetChange={setExplodedOffset}
+                      onExport={handleExportCut}
+                      isExporting={isExporting}
+                    />
+                  )}
                 </div>
               ) : (
                 /* Collapsed Minimal Bottom Bar (leaves full screen free for 3D model) */
@@ -903,6 +982,11 @@ export function App() {
               displayMode={displayMode}
               showWireframe={showWireframe}
               highlightColorBorders={highlightColorBorders}
+              mode={toolMode}
+              cutPlaneZ={cutPlaneZ}
+              cutPlaneNormal={cutPlaneNormal}
+              cutResult={cutResult}
+              explodedOffset={explodedOffset}
             />
 
             {/* Empty State Hero Card (Single unified landing card floating over the 3D build plate) */}
