@@ -220,42 +220,39 @@ function normalToAngles(n: [number, number, number]): { pitch: number; roll: num
 }
 
 /**
- * Creates a double-cone arrow with a central cube handle matching Bambu Studio / OrcaSlicer (Image 1 & 2)
+ * Creates an elongated tangential double-cone handle with a central diamond marker matching Bambu Studio / OrcaSlicer.
+ * Tangential arrowheads span ~18.4mm along the local X axis, significantly wider than the snap line spacing,
+ * with a distinct central diamond (rotated cube) that aligns directly with the snap spoke line.
  */
-function createSlicerDoubleConeHandle(colorHex: string, axis: 'x' | 'y' | 'z'): THREE.Group {
+function createSlicerDoubleConeHandle(colorHex: string): THREE.Group {
   const group = new THREE.Group();
-  const cubeGeom = new THREE.BoxGeometry(3.6, 3.6, 3.6);
-  const cubeMat = new THREE.MeshBasicMaterial({ color: colorHex, depthTest: false });
-  const cube = new THREE.Mesh(cubeGeom, cubeMat);
-  cube.renderOrder = 9999;
-  group.add(cube);
 
-  const coneGeom = new THREE.ConeGeometry(2.2, 5.0, 16);
+  // Central diamond marker (rotated cube)
+  const diamondGeom = new THREE.BoxGeometry(2.4, 2.4, 2.4);
+  diamondGeom.rotateZ(Math.PI / 4); // Rotates in local X-Y plane to form a sharp diamond ◆
+  const diamondMat = new THREE.MeshBasicMaterial({ color: colorHex, depthTest: false });
+  const diamond = new THREE.Mesh(diamondGeom, diamondMat);
+  diamond.renderOrder = 9999;
+  group.add(diamond);
+
+  // Tangential cone arrowheads pointing in opposite directions along local X axis
+  const coneGeom = new THREE.ConeGeometry(1.3, 5.2, 16);
   const coneMat = new THREE.MeshBasicMaterial({ color: colorHex, depthTest: false });
 
+  // Cone A (+X direction)
   const coneA = new THREE.Mesh(coneGeom, coneMat);
-  const coneB = new THREE.Mesh(coneGeom, coneMat);
+  coneA.rotateZ(-Math.PI / 2);
+  coneA.position.set(4.0, 0, 0);
   coneA.renderOrder = 9999;
-  coneB.renderOrder = 9999;
-
-  if (axis === 'x') {
-    coneA.rotateZ(-Math.PI / 2);
-    coneA.position.set(4.2, 0, 0);
-    coneB.rotateZ(Math.PI / 2);
-    coneB.position.set(-4.2, 0, 0);
-  } else if (axis === 'y') {
-    coneA.position.set(0, 4.2, 0);
-    coneB.rotateX(Math.PI);
-    coneB.position.set(0, -4.2, 0);
-  } else {
-    coneA.rotateX(Math.PI / 2);
-    coneA.position.set(0, 0, 4.2);
-    coneB.rotateX(-Math.PI / 2);
-    coneB.position.set(0, 0, -4.2);
-  }
-
   group.add(coneA);
+
+  // Cone B (-X direction)
+  const coneB = new THREE.Mesh(coneGeom, coneMat);
+  coneB.rotateZ(Math.PI / 2);
+  coneB.position.set(-4.0, 0, 0);
+  coneB.renderOrder = 9999;
   group.add(coneB);
+
   return group;
 }
 
@@ -264,13 +261,14 @@ function createSlicerDoubleConeHandle(colorHex: string, axis: 'x' | 'y' | 'z'): 
  * - axis === 'y': Dial lies in the vertical X-Z plane (around Y axis for Roll)
  * - axis === 'x': Dial lies in the vertical Y-Z plane (around X axis for Pitch)
  * Features 8 major radial spokes (every 45°), 15° medium ticks, 5° minor ticks,
- * concentric guide circle, vertical 0° reference line, and active spoke line to handle.
+ * concentric guide circle, vertical 0° reference line, and active spoke line connecting directly to handle diamond.
  */
 function createProtractorDial(radius: number, axis: 'x' | 'y', currentAngleDeg: number): THREE.Group {
   const dialGroup = new THREE.Group();
   const segments = 128;
+  const ringRadius = radius * 1.10;
 
-  // Outer ring (128 segments)
+  // Outer circular perimeter line (128 segments) at radius R
   const outerPoints: THREE.Vector3[] = [];
   for (let i = 0; i <= segments; i++) {
     const th = (i / segments) * Math.PI * 2;
@@ -291,7 +289,7 @@ function createProtractorDial(radius: number, axis: 'x' | 'y', currentAngleDeg: 
   outerLine.renderOrder = 9999;
   dialGroup.add(outerLine);
 
-  // Radial spoke lines and perimeter tick marks
+  // Inward radial spoke lines and perimeter tick marks (pointing inward from radius R)
   const tickCoords: number[] = [];
   for (let deg = 0; deg < 360; deg += 5) {
     const rad = (deg * Math.PI) / 180;
@@ -299,15 +297,13 @@ function createProtractorDial(radius: number, axis: 'x' | 'y', currentAngleDeg: 
     const cos = Math.cos(rad);
 
     let rIn = radius * 0.94;
-    let rOut = radius * 1.02;
+    const rOut = radius;
 
     if (deg % 45 === 0) {
       // Major snap spoke extending deep to 0.35 * R (the 8 major snap spokes in OrcaSlicer)
       rIn = radius * 0.35;
-      rOut = radius * 1.08;
     } else if (deg % 15 === 0) {
       rIn = radius * 0.88;
-      rOut = radius * 1.05;
     }
 
     if (axis === 'y') {
@@ -350,10 +346,10 @@ function createProtractorDial(radius: number, axis: 'x' | 'y', currentAngleDeg: 
   innerLine.renderOrder = 9998;
   dialGroup.add(innerLine);
 
-  // Reference 0° upright spoke line (from center to 0° top)
+  // Reference 0° upright spoke line (from center to 0° top at radius R)
   const refSpokePoints = [
     new THREE.Vector3(0, 0, 0),
-    new THREE.Vector3(0, 0, radius * 1.08),
+    new THREE.Vector3(0, 0, radius),
   ];
   const refSpokeGeom = new THREE.BufferGeometry().setFromPoints(refSpokePoints);
   const refSpokeMat = new THREE.LineBasicMaterial({
@@ -367,11 +363,11 @@ function createProtractorDial(radius: number, axis: 'x' | 'y', currentAngleDeg: 
   refSpokeLine.renderOrder = 9999;
   dialGroup.add(refSpokeLine);
 
-  // Live active spoke line (from center directly to current angle handle)
+  // Live active spoke line (from center directly to current angle handle diamond at ringRadius)
   const curRad = (currentAngleDeg * Math.PI) / 180;
   const liveTarget = axis === 'y'
-    ? new THREE.Vector3(Math.sin(curRad) * radius * 1.08, 0, Math.cos(curRad) * radius * 1.08)
-    : new THREE.Vector3(0, -Math.sin(curRad) * radius * 1.08, Math.cos(curRad) * radius * 1.08);
+    ? new THREE.Vector3(Math.sin(curRad) * ringRadius, 0, Math.cos(curRad) * ringRadius)
+    : new THREE.Vector3(0, -Math.sin(curRad) * ringRadius, Math.cos(curRad) * ringRadius);
 
   const liveSpokeGeom = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), liveTarget]);
   const liveSpokeMat = new THREE.LineBasicMaterial({
@@ -659,6 +655,17 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
           hoveredGizmoPartRef.current = part;
           setHoveredGizmoPart(part);
           renderer.domElement.style.cursor = part ? 'grab' : 'default';
+          if (part === 'roll') {
+            const { roll } = normalToAngles(cutPlaneNormalRef.current);
+            const deg = roll < 0 ? 360 + roll : roll;
+            setDialAngleText(`Y: ${deg.toFixed(2)}°`);
+          } else if (part === 'pitch') {
+            const { pitch } = normalToAngles(cutPlaneNormalRef.current);
+            const deg = pitch < 0 ? 360 + pitch : pitch;
+            setDialAngleText(`X: ${deg.toFixed(2)}°`);
+          } else if (part === 'height') {
+            setDialAngleText(`Z: ${cutPlaneZRef.current.toFixed(1)} mm`);
+          }
         }
         return;
       }
@@ -710,15 +717,16 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
           onCutPlaneNormalChangeRef.current?.(newNormal);
 
           const displayDeg = snappedRoll < 0 ? 360 + snappedRoll : snappedRoll;
-          setDialAngleText(`Y: ${displayDeg.toFixed(2)}`);
+          setDialAngleText(`Y: ${displayDeg.toFixed(2)}°`);
 
           // Badge position on the X-Z circle around Y
           const R = gizmoRadiusRef.current;
+          const ringRadius = R * 1.10;
           const rad = (snappedRoll * Math.PI) / 180;
           dialAnchorRef.current.set(
-            center.x + Math.sin(rad) * R * 1.08,
+            center.x + Math.sin(rad) * ringRadius,
             center.y,
-            center.z + Math.cos(rad) * R * 1.08
+            center.z + Math.cos(rad) * ringRadius
           );
         }
       } else if (activePart === 'pitch') {
@@ -749,15 +757,16 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
           onCutPlaneNormalChangeRef.current?.(newNormal);
 
           const displayDeg = snappedPitch < 0 ? 360 + snappedPitch : snappedPitch;
-          setDialAngleText(`X: ${displayDeg.toFixed(2)}`);
+          setDialAngleText(`X: ${displayDeg.toFixed(2)}°`);
 
           // Badge position on the Y-Z circle around X
           const R = gizmoRadiusRef.current;
+          const ringRadius = R * 1.10;
           const rad = (snappedPitch * Math.PI) / 180;
           dialAnchorRef.current.set(
             center.x,
-            center.y - Math.sin(rad) * R * 1.08,
-            center.z + Math.cos(rad) * R * 1.08
+            center.y - Math.sin(rad) * ringRadius,
+            center.z + Math.cos(rad) * ringRadius
           );
         }
       }
@@ -943,20 +952,26 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
       // Current angles from cutting normal
       const { pitch, roll } = normalToAngles(cutPlaneNormal);
+      const ringRadius = R * 1.10;
 
-      // Determine which rotation axis dial to show:
-      // If actively dragging or hovering Pitch -> show Pitch dial (in vertical Y-Z plane around X axis)
-      // Otherwise (default or Roll active/hovered) -> show Roll dial (in vertical X-Z plane around Y axis, as in OrcaSlicer)
-      const showPitchDial =
+      // Authentic OrcaSlicer Protractor Dial around rotation axis:
+      // Snap lines and protractor dial are hidden when idle (not moved or hovered).
+      // They appear dynamically only when hovering or dragging a rotation ring/handle.
+      const isRollActive =
+        activeGizmoPartRef.current === 'roll' ||
+        (hoveredGizmoPart === 'roll' && !activeGizmoPartRef.current);
+      const isPitchActive =
         activeGizmoPartRef.current === 'pitch' ||
         (hoveredGizmoPart === 'pitch' && !activeGizmoPartRef.current);
-      const activeAxis: 'x' | 'y' = showPitchDial ? 'x' : 'y';
-      const activeAngle = showPitchDial ? pitch : roll;
 
-      // Authentic OrcaSlicer Protractor Dial around rotation axis (NOT flat on plane)
-      const dial = createProtractorDial(R, activeAxis, activeAngle);
-      dial.position.set(0, 0, sceneZ);
-      planeGroup.add(dial);
+      if (isRollActive || isPitchActive) {
+        const activeAxis: 'x' | 'y' = isPitchActive ? 'x' : 'y';
+        const activeAngle = isPitchActive ? pitch : roll;
+
+        const dial = createProtractorDial(R, activeAxis, activeAngle);
+        dial.position.set(0, 0, sceneZ);
+        planeGroup.add(dial);
+      }
 
       // Height Arrow Stem (Central vertical double arrow along normal)
       const stemGroup = new THREE.Group();
@@ -1010,8 +1025,8 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       planeGroup.add(stemGroup);
       gizmoHitboxesRef.current.heightStem = heightHitbox;
 
-      // Green Roll Ring (in vertical X-Z plane around Y axis)
-      const greenRingGeom = new THREE.RingGeometry(R * 0.985, R * 1.015, 64);
+      // Green Roll Ring (in vertical X-Z plane around Y axis, outside dial at ringRadius)
+      const greenRingGeom = new THREE.RingGeometry(ringRadius * 0.985, ringRadius * 1.015, 64);
       const greenRingMat = new THREE.MeshBasicMaterial({
         color: '#22c55e',
         side: THREE.DoubleSide,
@@ -1029,31 +1044,38 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       const rollRad = (roll * Math.PI) / 180;
       const greenHandleGroup = new THREE.Group();
       greenHandleGroup.position.set(
-        Math.sin(rollRad) * R * 1.05,
+        Math.sin(rollRad) * ringRadius,
         0,
-        sceneZ + Math.cos(rollRad) * R * 1.05
+        sceneZ + Math.cos(rollRad) * ringRadius
       );
-      greenHandleGroup.rotation.y = -rollRad;
-      const greenHandle = createSlicerDoubleConeHandle('#22c55e', 'z');
+      // Tangential alignment around Y axis in X-Z plane
+      const rollBasis = new THREE.Matrix4().makeBasis(
+        new THREE.Vector3(Math.cos(rollRad), 0, -Math.sin(rollRad)),
+        new THREE.Vector3(0, 1, 0),
+        new THREE.Vector3(Math.sin(rollRad), 0, Math.cos(rollRad))
+      );
+      greenHandleGroup.quaternion.setFromRotationMatrix(rollBasis);
+
+      const greenHandle = createSlicerDoubleConeHandle('#22c55e');
       greenHandleGroup.add(greenHandle);
 
       // Green handle hitbox
-      const rollHitboxGeom = new THREE.BoxGeometry(14, 14, 14);
+      const rollHitboxGeom = new THREE.BoxGeometry(16, 16, 16);
       const rollHitbox = new THREE.Mesh(rollHitboxGeom, hitboxMat);
       greenHandleGroup.add(rollHitbox);
       planeGroup.add(greenHandleGroup);
       gizmoHitboxesRef.current.rollHandle = rollHitbox;
 
       // Green ring hitbox in X-Z plane
-      const rollRingHitboxGeom = new THREE.TorusGeometry(R, 6, 8, 32);
+      const rollRingHitboxGeom = new THREE.TorusGeometry(ringRadius, 5, 8, 32);
       const rollRingHitbox = new THREE.Mesh(rollRingHitboxGeom, hitboxMat);
       rollRingHitbox.rotation.x = Math.PI / 2;
       rollRingHitbox.position.set(0, 0, sceneZ);
       planeGroup.add(rollRingHitbox);
       gizmoHitboxesRef.current.rollRing = rollRingHitbox;
 
-      // Red Pitch Ring (in vertical Y-Z plane around X axis)
-      const redRingGeom = new THREE.RingGeometry(R * 0.985, R * 1.015, 64);
+      // Red Pitch Ring (in vertical Y-Z plane around X axis, outside dial at ringRadius)
+      const redRingGeom = new THREE.RingGeometry(ringRadius * 0.985, ringRadius * 1.015, 64);
       const redRingMat = new THREE.MeshBasicMaterial({
         color: '#ef4444',
         side: THREE.DoubleSide,
@@ -1072,22 +1094,29 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       const redHandleGroup = new THREE.Group();
       redHandleGroup.position.set(
         0,
-        -Math.sin(pitchRad) * R * 1.05,
-        sceneZ + Math.cos(pitchRad) * R * 1.05
+        -Math.sin(pitchRad) * ringRadius,
+        sceneZ + Math.cos(pitchRad) * ringRadius
       );
-      redHandleGroup.rotation.x = pitchRad;
-      const redHandle = createSlicerDoubleConeHandle('#ef4444', 'z');
+      // Tangential alignment around X axis in Y-Z plane
+      const pitchBasis = new THREE.Matrix4().makeBasis(
+        new THREE.Vector3(0, -Math.cos(pitchRad), -Math.sin(pitchRad)),
+        new THREE.Vector3(1, 0, 0),
+        new THREE.Vector3(0, -Math.sin(pitchRad), Math.cos(pitchRad))
+      );
+      redHandleGroup.quaternion.setFromRotationMatrix(pitchBasis);
+
+      const redHandle = createSlicerDoubleConeHandle('#ef4444');
       redHandleGroup.add(redHandle);
 
       // Red handle hitbox
-      const pitchHitboxGeom = new THREE.BoxGeometry(14, 14, 14);
+      const pitchHitboxGeom = new THREE.BoxGeometry(16, 16, 16);
       const pitchHitbox = new THREE.Mesh(pitchHitboxGeom, hitboxMat);
       redHandleGroup.add(pitchHitbox);
       planeGroup.add(redHandleGroup);
       gizmoHitboxesRef.current.pitchHandle = pitchHitbox;
 
       // Red ring hitbox in Y-Z plane
-      const pitchRingHitboxGeom = new THREE.TorusGeometry(R, 6, 8, 32);
+      const pitchRingHitboxGeom = new THREE.TorusGeometry(ringRadius, 5, 8, 32);
       const pitchRingHitbox = new THREE.Mesh(pitchRingHitboxGeom, hitboxMat);
       pitchRingHitbox.rotation.y = Math.PI / 2;
       pitchRingHitbox.position.set(0, 0, sceneZ);
@@ -1095,18 +1124,20 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       gizmoHitboxesRef.current.pitchRing = pitchRingHitbox;
 
       // Position default badge anchor on the active rotation wheel
-      if (activeAxis === 'y') {
+      if (isRollActive) {
         dialAnchorRef.current.set(
-          Math.sin(rollRad) * R * 1.08,
+          Math.sin(rollRad) * ringRadius,
           0,
-          sceneZ + Math.cos(rollRad) * R * 1.08
+          sceneZ + Math.cos(rollRad) * ringRadius
         );
-      } else {
+      } else if (isPitchActive) {
         dialAnchorRef.current.set(
           0,
-          -Math.sin(pitchRad) * R * 1.08,
-          sceneZ + Math.cos(pitchRad) * R * 1.08
+          -Math.sin(pitchRad) * ringRadius,
+          sceneZ + Math.cos(pitchRad) * ringRadius
         );
+      } else if (activeGizmoPartRef.current === 'height' || hoveredGizmoPart === 'height') {
+        dialAnchorRef.current.set(0, 0, sceneZ + 18);
       }
     } else {
       gizmoHitboxesRef.current = {};
