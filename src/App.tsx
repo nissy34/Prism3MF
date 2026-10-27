@@ -438,11 +438,13 @@ export function App() {
                 Prism3MF
               </h1>
               <span className="hidden xs:inline-block text-[10px] sm:text-[11px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 whitespace-nowrap">
-                Color-Preserving QEM
+                {toolMode === 'simplify' ? 'Color-Preserving QEM' : 'Planar Cut Splitter'}
               </span>
             </div>
             <p className="hidden xl:block text-xs text-zinc-400 truncate">
-              Simplify multi-color 3MF models while locking painted filament zones
+              {toolMode === 'simplify'
+                ? 'Simplify multi-color 3MF models while locking painted filament zones'
+                : 'Cut oversized multi-color models to fit build plates with alignment dowels'}
             </p>
           </div>
         </div>
@@ -989,57 +991,139 @@ export function App() {
               explodedOffset={explodedOffset}
             />
 
-            {/* Empty State Hero Card (Single unified landing card floating over the 3D build plate) */}
+            {/* Empty State Hero Card (Fully tool-aware landing card) */}
             {!archive && !isProcessing && (
               <div className="absolute inset-0 flex items-center justify-center p-4 sm:p-6 pointer-events-none">
                 <div className="max-w-lg w-full rounded-2xl border border-zinc-700/60 bg-zinc-900/90 backdrop-blur-xl p-6 sm:p-8 text-center space-y-5 shadow-2xl pointer-events-auto">
-                  <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mx-auto shadow-inner">
-                    <Layers className="w-7 h-7" />
+                  {/* Tool Mode Segmented Switcher inside Hero Card */}
+                  <div className="inline-flex p-1 bg-zinc-950 rounded-xl border border-zinc-800 shadow-inner mx-auto">
+                    <button
+                      type="button"
+                      onClick={() => setToolMode('simplify')}
+                      className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                        toolMode === 'simplify'
+                          ? 'bg-emerald-500 text-zinc-950 shadow-md'
+                          : 'text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Mesh Simplifier</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setToolMode('cut')}
+                      className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                        toolMode === 'cut'
+                          ? 'bg-emerald-500 text-zinc-950 shadow-md'
+                          : 'text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      <Scissors className="w-3.5 h-3.5" />
+                      <span>Planar Cut Splitter</span>
+                      <span
+                        className={`text-[9px] font-mono px-1 py-0.2 rounded font-bold ${
+                          toolMode === 'cut'
+                            ? 'bg-zinc-950/30 text-zinc-950'
+                            : 'bg-emerald-500/20 text-emerald-400'
+                        }`}
+                      >
+                        NEW
+                      </span>
+                    </button>
                   </div>
 
-                  <div className="space-y-2">
-                    <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-zinc-100">
-                      Simplify Multi-Color 3MF Files
-                    </h2>
-                    <p className="text-xs sm:text-sm text-zinc-400 leading-relaxed max-w-sm mx-auto">
-                      Decimate dense high-poly meshes up to 90% while strictly locking painted filament zones, logos, and brush strokes.
-                    </p>
-                  </div>
+                  {toolMode === 'simplify' ? (
+                    <>
+                      <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mx-auto shadow-inner">
+                        <Layers className="w-7 h-7" />
+                      </div>
+
+                      <div className="space-y-2">
+                        <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-zinc-100">
+                          Simplify Multi-Color 3MF Files
+                        </h2>
+                        <p className="text-xs sm:text-sm text-zinc-400 leading-relaxed max-w-sm mx-auto">
+                          Decimate dense high-poly meshes up to 90% while strictly locking painted filament zones, logos, and brush strokes.
+                        </p>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mx-auto shadow-inner">
+                        <Scissors className="w-7 h-7" />
+                      </div>
+
+                      <div className="space-y-2">
+                        <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-zinc-100">
+                          Color-Preserving Cut Splitter
+                        </h2>
+                        <p className="text-xs sm:text-sm text-zinc-400 leading-relaxed max-w-sm mx-auto">
+                          Cut oversized models to fit build plates (A1 Mini 180mm, X1/P1 256mm) with watertight caps and alignment dowels—keeping all paint intact.
+                        </p>
+                      </div>
+                    </>
+                  )}
 
                   <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-1">
                     <button
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
-                      className="w-full sm:w-auto px-5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold bg-emerald-500 hover:bg-emerald-400 text-zinc-950 flex items-center justify-center gap-2 transition-all shadow-lg shadow-emerald-500/20 hover:scale-[1.02]"
+                      className="w-full sm:w-auto px-5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold bg-emerald-500 hover:bg-emerald-400 text-zinc-950 flex items-center justify-center gap-2 transition-all shadow-lg shadow-emerald-500/20 hover:scale-[1.02] cursor-pointer"
                     >
                       <Upload className="w-4 h-4" />
-                      Select .3MF File
+                      {toolMode === 'simplify' ? 'Select .3MF File' : 'Select .3MF to Cut'}
                     </button>
                     <button
                       type="button"
                       onClick={handleLoadDemoModel}
-                      className="w-full sm:w-auto px-4 py-2.5 rounded-xl text-xs sm:text-sm font-medium bg-zinc-800/90 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 flex items-center justify-center gap-2 transition-colors hover:scale-[1.02]"
+                      className="w-full sm:w-auto px-4 py-2.5 rounded-xl text-xs sm:text-sm font-medium bg-zinc-800/90 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 flex items-center justify-center gap-2 transition-colors hover:scale-[1.02] cursor-pointer"
                     >
-                      <Sparkles className="w-4 h-4 text-emerald-400" />
-                      Try Demo Model
+                      {toolMode === 'simplify' ? (
+                        <>
+                          <Sparkles className="w-4 h-4 text-emerald-400" />
+                          Try Demo Model
+                        </>
+                      ) : (
+                        <>
+                          <Scissors className="w-4 h-4 text-emerald-400" />
+                          Try Demo Cut Model
+                        </>
+                      )}
                     </button>
                   </div>
 
                   {/* Highlights pills */}
-                  <div className="grid grid-cols-3 gap-2 pt-3 border-t border-zinc-800/70 text-[11px] text-zinc-400">
-                    <div className="flex flex-col items-center gap-0.5">
-                      <span className="text-emerald-400 font-semibold">Color-Locked</span>
-                      <span className="text-[10px] text-zinc-500">Zero color bleed</span>
+                  {toolMode === 'simplify' ? (
+                    <div className="grid grid-cols-3 gap-2 pt-3 border-t border-zinc-800/70 text-[11px] text-zinc-400">
+                      <div className="flex flex-col items-center gap-0.5">
+                        <span className="text-emerald-400 font-semibold">Color-Locked</span>
+                        <span className="text-[10px] text-zinc-500">Zero color bleed</span>
+                      </div>
+                      <div className="flex flex-col items-center gap-0.5 border-x border-zinc-800/70">
+                        <span className="text-emerald-400 font-semibold">Fast QEM</span>
+                        <span className="text-[10px] text-zinc-500">Up to 90% smaller</span>
+                      </div>
+                      <div className="flex flex-col items-center gap-0.5">
+                        <span className="text-emerald-400 font-semibold">100% Private</span>
+                        <span className="text-[10px] text-zinc-500">In-Browser Worker</span>
+                      </div>
                     </div>
-                    <div className="flex flex-col items-center gap-0.5 border-x border-zinc-800/70">
-                      <span className="text-emerald-400 font-semibold">Fast QEM</span>
-                      <span className="text-[10px] text-zinc-500">Up to 90% smaller</span>
+                  ) : (
+                    <div className="grid grid-cols-3 gap-2 pt-3 border-t border-zinc-800/70 text-[11px] text-zinc-400">
+                      <div className="flex flex-col items-center gap-0.5">
+                        <span className="text-emerald-400 font-semibold">Colors Preserved</span>
+                        <span className="text-[10px] text-zinc-500">AMS/MMU intact</span>
+                      </div>
+                      <div className="flex flex-col items-center gap-0.5 border-x border-zinc-800/70">
+                        <span className="text-emerald-400 font-semibold">Alignment Dowels</span>
+                        <span className="text-[10px] text-zinc-500">FDM snap-fit pins</span>
+                      </div>
+                      <div className="flex flex-col items-center gap-0.5">
+                        <span className="text-emerald-400 font-semibold">Plate-Ready 3MF</span>
+                        <span className="text-[10px] text-zinc-500">Side-by-side export</span>
+                      </div>
                     </div>
-                    <div className="flex flex-col items-center gap-0.5">
-                      <span className="text-emerald-400 font-semibold">100% Private</span>
-                      <span className="text-[10px] text-zinc-500">In-Browser Worker</span>
-                    </div>
-                  </div>
+                  )}
                 </div>
               </div>
             )}
