@@ -91,3 +91,53 @@ export interface SimplificationStats {
   processingTimeMs: number;
   preservedColorZones: number;
 }
+
+export interface CutConnectorOptions {
+  enabled: boolean;
+  /** 'dowel_sockets' = socket in both Part A and B + separate printable dowel pin
+   *  'integrated_pin' = pin on Part A, socket on Part B
+   *  'none' = smooth flat cut surface
+   */
+  style: 'dowel_sockets' | 'integrated_pin' | 'none';
+  /** Diameter of connector socket/pin in mm (default 5.0) */
+  diameter: number;
+  /** Length/depth of connector pin in mm (default 8.0) */
+  length: number;
+  /** Fit clearance tolerance in mm (default 0.2) */
+  tolerance: number;
+}
+
+export interface CutPlaneOptions {
+  /** A 3D point on the cut plane [px, py, pz] */
+  planePoint: [number, number, number];
+  /** Normal vector [nx, ny, nz] pointing toward Part A (default: [0, 0, 1]) */
+  planeNormal: [number, number, number];
+  /** Whether to seal/cap the cut cross-section with watertight faces (default: true) */
+  capFaces?: boolean;
+  /** Filament slot (1..N) to assign to cap faces (default: 1) */
+  capPaintSlot?: number;
+  /** Optional alignment connector options */
+  connectors?: CutConnectorOptions;
+}
+
+export interface CutPartMesh {
+  name: string;
+  vertices: Float32Array;
+  triangles: Uint32Array;
+  paintStates: Uint8Array;
+  triangleCount: number;
+  bounds: {
+    min: [number, number, number];
+    max: [number, number, number];
+  };
+}
+
+export interface CutMeshResult {
+  partA: CutPartMesh;
+  partB: CutPartMesh;
+  dowelPin?: CutPartMesh;
+  crossSectionArea: number;
+  cutLoopsCount: number;
+  connectorsCount: number;
+  processingTimeMs: number;
+}

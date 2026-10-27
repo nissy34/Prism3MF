@@ -1,6 +1,8 @@
 export {
   parse3MFArchive,
   exportSimplified3MF,
+  exportCut3MF,
+  exportCutPart3MF,
 } from './threeMfProcessor';
 
 export {
@@ -14,6 +16,10 @@ export {
   simplifyPaintedMesh,
 } from './qemSimplifier';
 
+export {
+  cutPaintedMesh,
+} from './meshCutter';
+
 export type {
   FilamentInfo,
   ParsedMeshObject,
@@ -21,4 +27,8 @@ export type {
   SimplificationOptions,
   SimplifiedMeshResult,
   SimplificationStats,
+  CutConnectorOptions,
+  CutPlaneOptions,
+  CutPartMesh,
+  CutMeshResult,
 } from './types';
