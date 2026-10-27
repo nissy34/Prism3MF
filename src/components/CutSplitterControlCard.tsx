@@ -1,4 +1,4 @@
-import React, { useState, useId } from 'react';
+import React, { useState, useEffect, useId } from 'react';
 import {
   Scissors,
   Download,
@@ -78,6 +78,14 @@ export const CutSplitterControlCard: React.FC<CutSplitterControlCardProps> = ({
   const [pitchAngle, setPitchAngle] = useState<number>(0);
   const [rollAngle, setRollAngle] = useState<number>(0);
   const [assembleInPlace, setAssembleInPlace] = useState<boolean>(false);
+
+  // Sync internal slider angles whenever cutPlaneNormal updates (e.g. from 3D gizmo or quick buttons)
+  useEffect(() => {
+    const p = (-Math.asin(Math.max(-1, Math.min(1, cutPlaneNormal[1]))) * 180) / Math.PI;
+    const r = (Math.atan2(cutPlaneNormal[0], cutPlaneNormal[2]) * 180) / Math.PI;
+    setPitchAngle(Number(p.toFixed(1)));
+    setRollAngle(Number(r.toFixed(1)));
+  }, [cutPlaneNormal]);
 
   const zMin = Number(meshBounds.min[2].toFixed(1));
   const zMax = Number(meshBounds.max[2].toFixed(1));

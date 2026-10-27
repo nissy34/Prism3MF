@@ -1,8 +1,7 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
-import { Move, RotateCw } from 'lucide-react';
+import { Move, RotateCw, Compass } from 'lucide-react';
 import {
   FilamentInfo,
   SimplifiedMeshResult,
@@ -199,6 +198,28 @@ function createColorBorderLinesGeometry(
 }
 
 /**
+ * Converts Pitch and Roll angles in degrees to a normalized plane normal vector [nx, ny, nz]
+ */
+function anglesToNormal(pDeg: number, rDeg: number): [number, number, number] {
+  const rx = (pDeg * Math.PI) / 180;
+  const ry = (rDeg * Math.PI) / 180;
+  const nx = Math.cos(rx) * Math.sin(ry);
+  const ny = -Math.sin(rx);
+  const nz = Math.cos(rx) * Math.cos(ry);
+  const len = Math.hypot(nx, ny, nz) || 1;
+  return [nx / len, ny / len, nz / len];
+}
+
+/**
+ * Extracts Pitch and Roll angles in degrees from a normalized plane normal vector
+ */
+function normalToAngles(n: [number, number, number]): { pitch: number; roll: number } {
+  const p = (-Math.asin(Math.max(-1, Math.min(1, n[1]))) * 180) / Math.PI;
+  const r = (Math.atan2(n[0], n[2]) * 180) / Math.PI;
+  return { pitch: p, roll: r };
+}
+
+/**
  * Creates a double-cone arrow with a central cube handle matching Bambu Studio / OrcaSlicer (Image 1 & 2)
  */
 function createSlicerDoubleConeHandle(colorHex: string, axis: 'x' | 'y' | 'z'): THREE.Group {
@@ -388,11 +409,31 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   const onCutPlaneNormalChangeRef = useRef(onCutPlaneNormalChange);
   onCutPlaneNormalChangeRef.current = onCutPlaneNormalChange;
 
-  const isDraggingGizmoRef = useRef<boolean>(false);
-  const transformControlsRef = useRef<TransformControls | null>(null);
-  const gizmoAnchorRef = useRef<THREE.Group | null>(null);
-  const [gizmoMode, setGizmoMode] = useState<'translate' | 'rotate'>('translate');
-  const [rotationSnap, setRotationSnap] = useState<number>(15);
+  const activeGizmoPartRef = useRef<'height' | 'pitch' | 'roll' | null>(null);
+  const hoveredGizmoPartRef = useRef<'height' | 'pitch' | 'roll' | null>(null);
+  const [hoveredGizmoPart, setHoveredGizmoPart] = useState<'height' | 'pitch' | 'roll' | null>(null);
+  const [isGizmoDragging, setIsGizmoDragging] = useState<boolean>(false);
+
+  const cutPlaneZRef = useRef<number>(cutPlaneZ ?? 25.0);
+  cutPlaneZRef.current = cutPlaneZ ?? 25.0;
+  const cutPlaneNormalRef = useRef<[number, number, number]>(cutPlaneNormal);
+  cutPlaneNormalRef.current = cutPlaneNormal;
+  const gizmoRadiusRef = useRef<number>(36);
+  const cutPlaneQuatRef = useRef<THREE.Quaternion>(new THREE.Quaternion());
+
+  const dragPlaneRef = useRef<THREE.Plane>(new THREE.Plane());
+  const dragCenterRef = useRef<THREE.Vector3>(new THREE.Vector3());
+  const dragStartAnglesRef = useRef<{ pitch: number; roll: number }>({ pitch: 0, roll: 0 });
+  const dragStartMousePosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const dragStartZRef = useRef<number>(25.0);
+
+  const gizmoHitboxesRef = useRef<{
+    heightStem?: THREE.Object3D;
+    pitchHandle?: THREE.Object3D;
+    rollHandle?: THREE.Object3D;
+    pitchRing?: THREE.Object3D;
+    rollRing?: THREE.Object3D;
+  }>({});
 
   const dialLabelRef = useRef<HTMLDivElement>(null);
   const dialAnchorRef = useRef<THREE.Vector3>(new THREE.Vector3());
@@ -402,8 +443,6 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   modeRef.current = mode;
   const cutResultRef = useRef(cutResult);
   cutResultRef.current = cutResult;
-  const gizmoModeRef = useRef(gizmoMode);
-  gizmoModeRef.current = gizmoMode;
 
   // Initialize Three.js Scene & OrcaSlicer-style Build Plate
   useEffect(() => {
@@ -487,72 +526,180 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     scene.add(modelGroup);
     modelGroupRef.current = modelGroup;
 
-    // Dedicated group for cut plane visualizer
+    // Dedicated group for cut plane visualizer & OrcaSlicer gizmo
     const cutPlaneHelper = new THREE.Group();
     scene.add(cutPlaneHelper);
     cutPlaneHelperRef.current = cutPlaneHelper;
 
-    // Dedicated anchor and TransformControls for dragging the cut plane with arrows
-    const gizmoAnchor = new THREE.Group();
-    scene.add(gizmoAnchor);
-    gizmoAnchorRef.current = gizmoAnchor;
+    // Native OrcaSlicer pointer event interaction for Cut Plane Gizmo
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
 
-    const tControls = new TransformControls(camera, renderer.domElement);
-    tControls.size = 1.15;
-    tControls.setSpace('world');
-    tControls.setTranslationSnap(0.5); // 0.5mm height snap
-    tControls.setRotationSnap(THREE.MathUtils.degToRad(15)); // 15° rotation snap
-    tControls.showX = false;
-    tControls.showY = false;
-    tControls.showZ = true;
-    const helper = tControls.getHelper ? tControls.getHelper() : (tControls as unknown as THREE.Object3D);
-    helper.traverse((child) => {
-      if ((child as THREE.Mesh).material) {
-        const mat = (child as THREE.Mesh).material;
-        if (Array.isArray(mat)) {
-          mat.forEach((m) => {
-            m.depthTest = false;
-            m.depthWrite = false;
-            m.transparent = true;
-          });
-        } else {
-          mat.depthTest = false;
-          mat.depthWrite = false;
-          mat.transparent = true;
+    const getRaycastHits = (e: MouseEvent) => {
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(mouse, camera);
+
+      const hitboxes = gizmoHitboxesRef.current;
+      const targets: { part: 'height' | 'pitch' | 'roll'; obj: THREE.Object3D }[] = [];
+      if (hitboxes.heightStem) targets.push({ part: 'height', obj: hitboxes.heightStem });
+      if (hitboxes.pitchHandle) targets.push({ part: 'pitch', obj: hitboxes.pitchHandle });
+      if (hitboxes.rollHandle) targets.push({ part: 'roll', obj: hitboxes.rollHandle });
+      if (hitboxes.pitchRing) targets.push({ part: 'pitch', obj: hitboxes.pitchRing });
+      if (hitboxes.rollRing) targets.push({ part: 'roll', obj: hitboxes.rollRing });
+
+      for (const t of targets) {
+        const intersects = raycaster.intersectObject(t.obj, true);
+        if (intersects.length > 0) {
+          return { part: t.part, point: intersects[0].point };
         }
       }
-      child.renderOrder = 9999;
-    });
-    scene.add(helper);
-    transformControlsRef.current = tControls;
+      return null;
+    };
 
-    tControls.addEventListener('dragging-changed', (event) => {
-      isDraggingGizmoRef.current = Boolean(event.value);
-      if (controlsRef.current) {
-        controlsRef.current.enabled = !event.value;
-      }
-    });
+    const handlePointerDown = (e: MouseEvent) => {
+      if (e.button !== 0) return;
+      if (modeRef.current !== 'cut' || cutResultRef.current) return;
 
-    tControls.addEventListener('objectChange', () => {
-      if (!gizmoAnchorRef.current) return;
-      if (tControls.getMode() === 'translate') {
-        const sceneZ = gizmoAnchorRef.current.position.z;
-        const minZ = modelMinZRef.current;
-        const maxZ = modelMaxZRef.current;
-        const rawZ = Math.max(minZ, Math.min(maxZ, sceneZ + minZ));
-        onCutPlaneZChangeRef.current?.(Number(rawZ.toFixed(2)));
-      } else if (tControls.getMode() === 'rotate') {
-        const q = gizmoAnchorRef.current.quaternion;
-        const norm = new THREE.Vector3(0, 0, 1).applyQuaternion(q).normalize();
-        const angleDeg = (Math.acos(Math.min(1, Math.max(-1, norm.z))) * 180) / Math.PI;
-        setDialAngleText(`${Math.abs(norm.y) > 0.01 ? 'Y: ' : 'X: '}${angleDeg.toFixed(2)}°`);
-        onCutPlaneNormalChangeRef.current?.([
-          Number(norm.x.toFixed(4)),
-          Number(norm.y.toFixed(4)),
-          Number(norm.z.toFixed(4)),
-        ]);
+      const hit = getRaycastHits(e);
+      if (!hit) return;
+
+      e.stopPropagation();
+      activeGizmoPartRef.current = hit.part;
+      setIsGizmoDragging(true);
+      controls.enabled = false;
+
+      const currentZ = cutPlaneZRef.current;
+      dragStartZRef.current = currentZ;
+      dragStartMousePosRef.current = { x: e.clientX, y: e.clientY };
+
+      const angles = normalToAngles(cutPlaneNormalRef.current);
+      dragStartAnglesRef.current = angles;
+
+      const sceneZ = currentZ - modelMinZRef.current;
+      dragCenterRef.current.set(0, 0, sceneZ);
+
+      // Define drag interaction plane
+      if (hit.part === 'height') {
+        const camDir = camera.getWorldDirection(new THREE.Vector3());
+        let vNorm = new THREE.Vector3(camDir.x, camDir.y, 0).normalize();
+        if (vNorm.lengthSq() < 0.001) vNorm = new THREE.Vector3(0, -1, 0);
+        dragPlaneRef.current.setFromNormalAndCoplanarPoint(vNorm, dragCenterRef.current);
+      } else {
+        const norm = new THREE.Vector3(...cutPlaneNormalRef.current).normalize();
+        dragPlaneRef.current.setFromNormalAndCoplanarPoint(norm, dragCenterRef.current);
       }
-    });
+    };
+
+    const handlePointerMove = (e: MouseEvent) => {
+      if (modeRef.current !== 'cut' || cutResultRef.current) return;
+
+      const activePart = activeGizmoPartRef.current;
+      if (!activePart) {
+        const hit = getRaycastHits(e);
+        const part = hit ? hit.part : null;
+        if (part !== hoveredGizmoPartRef.current) {
+          hoveredGizmoPartRef.current = part;
+          setHoveredGizmoPart(part);
+          renderer.domElement.style.cursor = part ? 'grab' : 'default';
+        }
+        return;
+      }
+
+      renderer.domElement.style.cursor = 'grabbing';
+
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(mouse, camera);
+
+      if (activePart === 'height') {
+        const intersection = new THREE.Vector3();
+        if (raycaster.ray.intersectPlane(dragPlaneRef.current, intersection)) {
+          const rawZ = intersection.z + modelMinZRef.current;
+          const minZ = modelMinZRef.current;
+          const maxZ = modelMaxZRef.current;
+          const clampedZ = Math.max(minZ, Math.min(maxZ, rawZ));
+          const snappedZ = Math.round(clampedZ * 2) / 2; // 0.5mm snap
+          onCutPlaneZChangeRef.current?.(Number(snappedZ.toFixed(2)));
+          setDialAngleText(`Z: ${snappedZ.toFixed(1)} mm`);
+        }
+      } else if (activePart === 'pitch' || activePart === 'roll') {
+        const intersection = new THREE.Vector3();
+        if (raycaster.ray.intersectPlane(dragPlaneRef.current, intersection)) {
+          const center = dragCenterRef.current;
+          const diff = intersection.clone().sub(center);
+          const invQuat = cutPlaneQuatRef.current.clone().invert();
+          diff.applyQuaternion(invQuat);
+
+          const dist = Math.hypot(diff.x, diff.y);
+          const currentDeg = (Math.atan2(diff.y, diff.x) * 180) / Math.PI;
+
+          const R = gizmoRadiusRef.current;
+          let snapDeg: number;
+          let snapLabel = '';
+
+          // OrcaSlicer protractor snapping rules:
+          // Inside (< 0.75 R): 45° snap (the 8 major spokes)
+          // Perimeter (0.75 R to 1.35 R): 5° snap (the 72 tick marks)
+          // Outside (>= 1.35 R): Free continuous rotation
+          if (dist < R * 0.75) {
+            snapDeg = Math.round(currentDeg / 45) * 45;
+            snapLabel = ' (45° Snap)';
+          } else if (dist < R * 1.35) {
+            snapDeg = Math.round(currentDeg / 5) * 5;
+            snapLabel = ' (5° Snap)';
+          } else {
+            snapDeg = Number(currentDeg.toFixed(1));
+            snapLabel = ' (Free)';
+          }
+
+          let newPitch = dragStartAnglesRef.current.pitch;
+          let newRoll = dragStartAnglesRef.current.roll;
+
+          if (activePart === 'roll') {
+            newRoll = snapDeg;
+            setDialAngleText(`Y: ${newRoll.toFixed(1)}°${snapLabel}`);
+          } else {
+            newPitch = snapDeg;
+            setDialAngleText(`X: ${newPitch.toFixed(1)}°${snapLabel}`);
+          }
+
+          // Clamp angles to [-89, 89]
+          newPitch = Math.max(-89, Math.min(89, newPitch));
+          newRoll = Math.max(-89, Math.min(89, newRoll));
+
+          const newNormal = anglesToNormal(newPitch, newRoll);
+          onCutPlaneNormalChangeRef.current?.(newNormal);
+
+          // Position the dialAnchorRef for the HUD tooltip badge
+          const badgeOffset = new THREE.Vector3(
+            Math.cos((snapDeg * Math.PI) / 180) * R * 1.12,
+            Math.sin((snapDeg * Math.PI) / 180) * R * 1.12,
+            0
+          ).applyQuaternion(cutPlaneQuatRef.current);
+          dialAnchorRef.current.set(
+            center.x + badgeOffset.x,
+            center.y + badgeOffset.y,
+            center.z + badgeOffset.z
+          );
+        }
+      }
+    };
+
+    const handlePointerUp = () => {
+      if (activeGizmoPartRef.current) {
+        activeGizmoPartRef.current = null;
+        setIsGizmoDragging(false);
+        controls.enabled = true;
+        renderer.domElement.style.cursor = 'default';
+      }
+    };
+
+    renderer.domElement.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
 
     let animId = 0;
     const animate = () => {
@@ -560,8 +707,13 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       controls.update();
       renderer.render(scene, camera);
 
-      // Bambu Studio Slicer Angle HUD Badge (Image 2)
-      if (dialLabelRef.current && modeRef.current === 'cut' && !cutResultRef.current && gizmoModeRef.current === 'rotate') {
+      // Bambu Studio / OrcaSlicer live angle HUD badge (Image 2)
+      if (
+        dialLabelRef.current &&
+        modeRef.current === 'cut' &&
+        !cutResultRef.current &&
+        (activeGizmoPartRef.current || hoveredGizmoPartRef.current)
+      ) {
         const v = dialAnchorRef.current.clone();
         v.project(camera);
         if (v.z > 1) {
@@ -625,9 +777,11 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
     return () => {
       cancelAnimationFrame(animId);
+      renderer.domElement.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
       window.removeEventListener('resize', handleResize);
       resizeObserver.disconnect();
-      tControls.dispose();
       controls.dispose();
       renderer.dispose();
       if (renderer.domElement.parentNode === container) {
@@ -636,37 +790,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     };
   }, []);
 
-  // Update gizmo mode when toggled (Height Arrow vs Tilt Rings)
-  useEffect(() => {
-    const tc = transformControlsRef.current;
-    if (!tc) return;
-    if (gizmoMode === 'translate') {
-      tc.setMode('translate');
-      tc.setSpace('world');
-      tc.showX = false;
-      tc.showY = false;
-      tc.showZ = true;
-    } else {
-      tc.setMode('rotate');
-      tc.setSpace('local');
-      tc.showX = true;
-      tc.showY = true;
-      tc.showZ = true;
-    }
-  }, [gizmoMode]);
-
-  // Update rotation snapping (15° or 45° or free)
-  useEffect(() => {
-    const tc = transformControlsRef.current;
-    if (!tc) return;
-    if (rotationSnap > 0) {
-      tc.setRotationSnap(THREE.MathUtils.degToRad(rotationSnap));
-    } else {
-      tc.setRotationSnap(null);
-    }
-  }, [rotationSnap]);
-
-  // Update Cutting Plane Visualizer Helper & 3D Drag Gizmo
+  // Update Cutting Plane Visualizer Helper & OrcaSlicer 3D Drag Gizmo
   useEffect(() => {
     const planeGroup = cutPlaneHelperRef.current;
     if (!planeGroup) return;
@@ -720,6 +844,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       const normalVec = new THREE.Vector3(...cutPlaneNormal).normalize();
       const defaultUp = new THREE.Vector3(0, 0, 1);
       const quat = new THREE.Quaternion().setFromUnitVectors(defaultUp, normalVec);
+      cutPlaneQuatRef.current.copy(quat);
 
       planeMesh.position.set(0, 0, sceneZ);
       planeMesh.quaternion.copy(quat);
@@ -738,72 +863,149 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       edgeLines.quaternion.copy(quat);
       planeGroup.add(edgeLines);
 
-      // Central solid metallic sphere handle (Bambu Studio / OrcaSlicer style)
-      const centerSphereGeom = new THREE.SphereGeometry(4.2, 28, 28);
-      const centerSphereMat = new THREE.MeshStandardMaterial({
+      const R = Math.max(Math.min(boundX, boundY) * 0.44, 32);
+      gizmoRadiusRef.current = R;
+
+      // OrcaSlicer Protractor Dial with 45° spokes and 5° ticks (Image 2)
+      const dial = createProtractorDialGroup(R);
+      dial.position.set(0, 0, sceneZ);
+      dial.quaternion.copy(quat);
+      planeGroup.add(dial);
+
+      // Height Arrow Stem (Central vertical double arrow along normal)
+      const stemGroup = new THREE.Group();
+      stemGroup.position.set(0, 0, sceneZ);
+      stemGroup.quaternion.copy(quat);
+
+      // Central metallic sphere
+      const sphereGeom = new THREE.SphereGeometry(3.6, 24, 24);
+      const sphereMat = new THREE.MeshStandardMaterial({
         color: '#10b981',
         emissive: '#047857',
-        roughness: 0.25,
+        roughness: 0.3,
         metalness: 0.7,
         depthTest: false,
       });
-      const centerSphere = new THREE.Mesh(centerSphereGeom, centerSphereMat);
-      centerSphere.renderOrder = 9998;
-      centerSphere.position.set(0, 0, sceneZ);
-      planeGroup.add(centerSphere);
+      const sphere = new THREE.Mesh(sphereGeom, sphereMat);
+      sphere.renderOrder = 9999;
+      stemGroup.add(sphere);
 
-      // Horizontal red conical arrows on the plane (Bambu Studio tilt indicators)
-      const coneGeom = new THREE.ConeGeometry(2.4, 5.5, 16);
-      coneGeom.rotateZ(-Math.PI / 2);
-      const coneMat = new THREE.MeshBasicMaterial({
-        color: '#ef4444',
+      // Up and Down cones for height stem
+      const stemConeGeom = new THREE.ConeGeometry(2.4, 5.5, 16);
+      const stemConeMat = new THREE.MeshBasicMaterial({
+        color: '#10b981',
         depthTest: false,
       });
-      const rightCone = new THREE.Mesh(coneGeom, coneMat);
-      rightCone.position.set(7.5, 0, 0);
-      rightCone.renderOrder = 9998;
+      const topCone = new THREE.Mesh(stemConeGeom, stemConeMat);
+      topCone.position.set(0, 0, 12);
+      topCone.rotateX(Math.PI / 2);
+      topCone.renderOrder = 9999;
+      stemGroup.add(topCone);
 
-      const leftCone = new THREE.Mesh(coneGeom, coneMat);
-      leftCone.rotation.z = Math.PI;
-      leftCone.position.set(-7.5, 0, 0);
-      leftCone.renderOrder = 9998;
+      const botCone = new THREE.Mesh(stemConeGeom, stemConeMat);
+      botCone.position.set(0, 0, -12);
+      botCone.rotateX(-Math.PI / 2);
+      botCone.renderOrder = 9999;
+      stemGroup.add(botCone);
 
-      const handleGroup = new THREE.Group();
-      handleGroup.position.set(0, 0, sceneZ);
-      handleGroup.quaternion.copy(quat);
-      handleGroup.add(rightCone);
-      handleGroup.add(leftCone);
-      planeGroup.add(handleGroup);
+      // Stem shaft
+      const shaftGeom = new THREE.CylinderGeometry(0.9, 0.9, 20, 12);
+      shaftGeom.rotateX(Math.PI / 2);
+      const shaft = new THREE.Mesh(shaftGeom, stemConeMat);
+      shaft.renderOrder = 9999;
+      stemGroup.add(shaft);
 
-      // Bambu Studio Protractor Dial with Snap Points (matching Image 2)
-      if (gizmoMode === 'rotate') {
-        const dialRadius = Math.max(Math.min(boundX, boundY) * 0.48, 28);
-        const dial = createProtractorDialGroup(dialRadius);
-        dial.position.set(0, 0, sceneZ);
-        dial.quaternion.copy(quat);
-        planeGroup.add(dial);
+      // Height stem invisible hitbox (cylinder)
+      const hitboxMat = new THREE.MeshBasicMaterial({ visible: false });
+      const heightHitboxGeom = new THREE.CylinderGeometry(6.0, 6.0, 32, 12);
+      heightHitboxGeom.rotateX(Math.PI / 2);
+      const heightHitbox = new THREE.Mesh(heightHitboxGeom, hitboxMat);
+      stemGroup.add(heightHitbox);
+      planeGroup.add(stemGroup);
+      gizmoHitboxesRef.current.heightStem = heightHitbox;
 
-        // Position dialAnchorRef for the live HUD badge (Image 2)
-        const topHandleOffset = new THREE.Vector3(0, dialRadius * 1.05, 0).applyQuaternion(quat);
-        dialAnchorRef.current.set(topHandleOffset.x, topHandleOffset.y, sceneZ + topHandleOffset.z);
-      }
+      // Red Pitch Ring & Hitbox (X-axis rotation)
+      const redRingGeom = new THREE.RingGeometry(R * 0.98, R * 1.02, 64);
+      const redRingMat = new THREE.MeshBasicMaterial({
+        color: '#ef4444',
+        side: THREE.DoubleSide,
+        depthTest: false,
+        transparent: true,
+        opacity: 0.6,
+      });
+      const redRing = new THREE.Mesh(redRingGeom, redRingMat);
+      redRing.position.set(0, 0, sceneZ);
+      redRing.quaternion.copy(quat);
+      redRing.renderOrder = 9999;
+      planeGroup.add(redRing);
 
-      // Attach 3D Drag Gizmo
-      if (gizmoAnchorRef.current) {
-        if (!isDraggingGizmoRef.current) {
-          gizmoAnchorRef.current.position.set(0, 0, sceneZ);
-          gizmoAnchorRef.current.quaternion.copy(quat);
-        }
-        if (transformControlsRef.current && !transformControlsRef.current.dragging) {
-          transformControlsRef.current.attach(gizmoAnchorRef.current);
-        }
-      }
+      // Red handle at (0, R * 1.05, 0)
+      const pitchHandleGroup = new THREE.Group();
+      pitchHandleGroup.position.set(0, 0, sceneZ);
+      pitchHandleGroup.quaternion.copy(quat);
+
+      const redHandle = createSlicerDoubleConeHandle('#ef4444', 'x');
+      redHandle.position.set(0, R * 1.05, 0);
+      pitchHandleGroup.add(redHandle);
+
+      // Hitbox for pitch handle
+      const pitchHitboxGeom = new THREE.BoxGeometry(12, 12, 12);
+      const pitchHitbox = new THREE.Mesh(pitchHitboxGeom, hitboxMat);
+      pitchHitbox.position.set(0, R * 1.05, 0);
+      pitchHandleGroup.add(pitchHitbox);
+
+      // Pitch ring hitbox
+      const pitchRingHitboxGeom = new THREE.TorusGeometry(R, 6, 8, 32);
+      const pitchRingHitbox = new THREE.Mesh(pitchRingHitboxGeom, hitboxMat);
+      pitchHandleGroup.add(pitchRingHitbox);
+
+      planeGroup.add(pitchHandleGroup);
+      gizmoHitboxesRef.current.pitchHandle = pitchHitbox;
+      gizmoHitboxesRef.current.pitchRing = pitchRingHitbox;
+
+      // Green Roll Ring & Hitbox (Y-axis rotation)
+      const greenRingGeom = new THREE.RingGeometry(R * 0.98, R * 1.02, 64);
+      const greenRingMat = new THREE.MeshBasicMaterial({
+        color: '#22c55e',
+        side: THREE.DoubleSide,
+        depthTest: false,
+        transparent: true,
+        opacity: 0.6,
+      });
+      const greenRing = new THREE.Mesh(greenRingGeom, greenRingMat);
+      greenRing.position.set(0, 0, sceneZ);
+      greenRing.quaternion.copy(quat);
+      greenRing.renderOrder = 9999;
+      planeGroup.add(greenRing);
+
+      const rollHandleGroup = new THREE.Group();
+      rollHandleGroup.position.set(0, 0, sceneZ);
+      rollHandleGroup.quaternion.copy(quat);
+
+      const greenHandle = createSlicerDoubleConeHandle('#22c55e', 'y');
+      greenHandle.position.set(R * 1.05, 0, 0);
+      rollHandleGroup.add(greenHandle);
+
+      const rollHitboxGeom = new THREE.BoxGeometry(12, 12, 12);
+      const rollHitbox = new THREE.Mesh(rollHitboxGeom, hitboxMat);
+      rollHitbox.position.set(R * 1.05, 0, 0);
+      rollHandleGroup.add(rollHitbox);
+
+      const rollRingHitboxGeom = new THREE.TorusGeometry(R, 6, 8, 32);
+      const rollRingHitbox = new THREE.Mesh(rollRingHitboxGeom, hitboxMat);
+      rollHandleGroup.add(rollRingHitbox);
+
+      planeGroup.add(rollHandleGroup);
+      gizmoHitboxesRef.current.rollHandle = rollHitbox;
+      gizmoHitboxesRef.current.rollRing = rollRingHitbox;
+
+      // Set initial badge position
+      const defaultAnchor = new THREE.Vector3(0, R * 1.15, 0).applyQuaternion(quat);
+      dialAnchorRef.current.set(defaultAnchor.x, defaultAnchor.y, sceneZ + defaultAnchor.z);
     } else {
-      if (transformControlsRef.current) {
-        transformControlsRef.current.detach();
-      }
+      gizmoHitboxesRef.current = {};
     }
-  }, [mode, cutPlaneZ, cutPlaneNormal, cutResult, meshes, modelBounds.minZ, gizmoMode]);
+  }, [mode, cutPlaneZ, cutPlaneNormal, cutResult, meshes, modelBounds.minZ]);
 
   // Rebuild 3D meshes when model, simplification result, or cut result changes
   useEffect(() => {
@@ -1109,91 +1311,19 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         <span>{dialAngleText}</span>
       </div>
 
-      {/* 3D Slicer Cut & Snap Control Toolbar */}
+      {/* 3D Slicer Cut & Quick Angle Snap Bar */}
       {mode === 'cut' && !cutResult && meshes.length > 0 && (
         <div className="absolute top-3 right-3 sm:top-4 sm:right-4 z-20 flex flex-col items-end gap-1.5 pointer-events-auto">
-          {/* Main Gizmo & Snap Bar */}
-          <div className="flex flex-wrap items-center gap-1.5 p-1 rounded-xl bg-zinc-900/95 border border-zinc-800 backdrop-blur-md shadow-2xl text-xs">
-            {/* Mode: Translate vs Rotate */}
-            <div className="flex items-center p-0.5 bg-zinc-950 rounded-lg border border-zinc-800/80">
-              <button
-                type="button"
-                onClick={() => setGizmoMode('translate')}
-                className={`px-2 py-1 rounded-md text-xs font-medium flex items-center gap-1 transition-all cursor-pointer ${
-                  gizmoMode === 'translate'
-                    ? 'bg-emerald-500 text-zinc-950 font-semibold shadow-xs'
-                    : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-                title="Drag cut height along vertical Z arrow"
-              >
-                <Move className="w-3.5 h-3.5" />
-                <span>Height Arrow</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setGizmoMode('rotate')}
-                className={`px-2 py-1 rounded-md text-xs font-medium flex items-center gap-1 transition-all cursor-pointer ${
-                  gizmoMode === 'rotate'
-                    ? 'bg-emerald-500 text-zinc-950 font-semibold shadow-xs'
-                    : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-                title="Rotate & tilt plane with 3D rotation rings and angle snap points"
-              >
-                <RotateCw className="w-3.5 h-3.5" />
-                <span>Tilt Rings</span>
-              </button>
-            </div>
-
-            {/* Snap Points Selector */}
-            <div className="flex items-center gap-0.5 px-1.5 py-0.5 bg-zinc-950 rounded-lg border border-zinc-800/80 text-[11px]">
-              <span className="text-[10px] text-zinc-400 px-0.5 font-medium">Snap:</span>
-              <button
-                type="button"
-                onClick={() => setRotationSnap(15)}
-                className={`px-1.5 py-0.5 rounded text-[11px] font-mono transition-colors cursor-pointer ${
-                  rotationSnap === 15
-                    ? 'bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/40'
-                    : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-                title="Snap in 15° increments (0°, 15°, 30°, 45°, 60°, 75°, 90°)"
-              >
-                15°
-              </button>
-              <button
-                type="button"
-                onClick={() => setRotationSnap(45)}
-                className={`px-1.5 py-0.5 rounded text-[11px] font-mono transition-colors cursor-pointer ${
-                  rotationSnap === 45
-                    ? 'bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/40'
-                    : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-                title="Snap in 45° increments (0°, 45°, 90°)"
-              >
-                45°
-              </button>
-              <button
-                type="button"
-                onClick={() => setRotationSnap(0)}
-                className={`px-1.5 py-0.5 rounded text-[11px] transition-colors cursor-pointer ${
-                  rotationSnap === 0
-                    ? 'bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/40'
-                    : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-                title="Free continuous rotation without snap points"
-              >
-                Free
-              </button>
-            </div>
-          </div>
-
-          {/* Quick Angle Snap Chips */}
-          <div className="flex items-center gap-1 p-1 rounded-lg bg-zinc-950/85 border border-zinc-800/80 text-[11px] font-mono shadow-lg">
-            <span className="text-[10px] text-zinc-400 px-1 font-sans">Quick Angle:</span>
+          <div className="flex items-center gap-1 p-1 rounded-xl bg-zinc-900/95 border border-zinc-800 backdrop-blur-md shadow-2xl text-xs font-mono">
+            <span className="text-[11px] text-zinc-400 px-1 font-sans flex items-center gap-1">
+              <Compass className="w-3.5 h-3.5 text-emerald-400" />
+              Quick Angle:
+            </span>
             <button
               type="button"
               onClick={() => onCutPlaneNormalChange?.([0, 0, 1])}
-              className="px-1.5 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white transition-colors cursor-pointer"
-              title="Snap to Flat horizontal cut"
+              className="px-2 py-1 rounded bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 hover:text-white transition-colors cursor-pointer"
+              title="Snap to Flat horizontal cut (0°)"
             >
               0° Flat
             </button>
@@ -1203,7 +1333,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
                 const rad = (15 * Math.PI) / 180;
                 onCutPlaneNormalChange?.([0, -Math.sin(rad), Math.cos(rad)]);
               }}
-              className="px-1.5 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white transition-colors cursor-pointer"
+              className="px-2 py-1 rounded bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 hover:text-white transition-colors cursor-pointer"
               title="Snap to 15° pitch angle"
             >
               15°
@@ -1214,7 +1344,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
                 const rad = (45 * Math.PI) / 180;
                 onCutPlaneNormalChange?.([0, -Math.sin(rad), Math.cos(rad)]);
               }}
-              className="px-1.5 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white transition-colors cursor-pointer"
+              className="px-2 py-1 rounded bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 hover:text-white transition-colors cursor-pointer"
               title="Snap to 45° diagonal angle"
             >
               45°
@@ -1228,11 +1358,14 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
                   -cutPlaneNormal[2],
                 ]);
               }}
-              className="px-1.5 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white transition-colors cursor-pointer"
-              title="Invert / Flip cutting plane normal"
+              className="px-2 py-1 rounded bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 hover:text-white transition-colors cursor-pointer"
+              title="Flip 180°"
             >
               Flip 180°
             </button>
+          </div>
+          <div className="text-[10px] text-zinc-400 font-sans bg-zinc-950/85 px-2.5 py-1 rounded-md border border-zinc-800/70 shadow-lg backdrop-blur-xs">
+            🎯 Drag rings to rotate (inside: 45° snap, perimeter: 5° snap, outside: free) • Drag stem for Z height
           </div>
         </div>
       )}
