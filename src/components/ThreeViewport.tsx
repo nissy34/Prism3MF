@@ -201,6 +201,14 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   const controlsRef = useRef<OrbitControls | null>(null);
   const modelGroupRef = useRef<THREE.Group | null>(null);
   const lastMeshKeyRef = useRef<string>('');
+  const displayModeRef = useRef<ViewportDisplayMode>(displayMode);
+  displayModeRef.current = displayMode;
+
+  const origAnchorRef = useRef<THREE.Vector3>(new THREE.Vector3());
+  const simpAnchorRef = useRef<THREE.Vector3>(new THREE.Vector3());
+  const isSplitAnchoredRef = useRef<boolean>(false);
+  const origLabelRef = useRef<HTMLDivElement>(null);
+  const simpLabelRef = useRef<HTMLDivElement>(null);
 
   // Initialize Three.js Scene & OrcaSlicer-style Build Plate
   useEffect(() => {
@@ -289,6 +297,35 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       animId = requestAnimationFrame(animate);
       controls.update();
       renderer.render(scene, camera);
+
+      // Project 3D anchored positions directly above each model in Split View
+      if (isSplitAnchoredRef.current && displayModeRef.current === 'split') {
+        const updateBadge = (anchor: THREE.Vector3, el: HTMLDivElement | null) => {
+          if (!el || !container) return;
+          const v = anchor.clone();
+          v.project(camera);
+
+          // If point is behind camera near plane, hide badge
+          if (v.z > 1) {
+            el.style.display = 'none';
+            return;
+          }
+
+          const w = container.clientWidth;
+          const h = container.clientHeight;
+          const px = (v.x * 0.5 + 0.5) * w;
+          const py = (-v.y * 0.5 + 0.5) * h;
+
+          el.style.display = 'flex';
+          el.style.transform = `translate(-50%, -100%) translate(${Math.round(px)}px, ${Math.round(py)}px)`;
+        };
+
+        updateBadge(origAnchorRef.current, origLabelRef.current);
+        updateBadge(simpAnchorRef.current, simpLabelRef.current);
+      } else {
+        if (origLabelRef.current) origLabelRef.current.style.display = 'none';
+        if (simpLabelRef.current) simpLabelRef.current.style.display = 'none';
+      }
     };
     animate();
 
@@ -382,10 +419,10 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
         if (showWireframe) {
           const wireMat = new THREE.MeshBasicMaterial({
-            color: '#18181b',
+            color: displayMode === 'split' ? (useSimplified ? '#10b981' : '#52525b') : '#18181b',
             wireframe: true,
             transparent: true,
-            opacity: 0.38,
+            opacity: displayMode === 'split' && useSimplified ? 0.48 : 0.38,
           });
           const wireMesh = new THREE.Mesh(geom, wireMat);
           subGroup.add(wireMesh);
@@ -432,15 +469,53 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     const splitOffset = Math.max(size.x * 0.72, 32);
 
     if (displayMode === 'split') {
-      // Left: Original Painted Mesh, Right: Simplified Painted Mesh
+      // Side-by-side split comparison
       const origGroup = buildSubGroup(false, -splitOffset);
       const simpGroup = buildSubGroup(true, splitOffset);
       group.add(origGroup);
       group.add(simpGroup);
-    } else if (displayMode === 'original') {
-      group.add(buildSubGroup(false, 0));
+
+      // Measure bounding boxes to anchor 3D badges right above each model
+      const origB = new THREE.Box3().setFromObject(origGroup);
+      const simpB = new THREE.Box3().setFromObject(simpGroup);
+      const maxZ = Math.max(origB.max.z, simpB.max.z, 20);
+
+      origAnchorRef.current.set(-splitOffset, 0, maxZ + 8);
+      simpAnchorRef.current.set(splitOffset, 0, maxZ + 8);
+      isSplitAnchoredRef.current = true;
+
+      // Add build plate pedestal rings under each model on Z=0
+      const ringRadius = Math.max(size.x * 0.45, 18);
+      const ringGeom = new THREE.RingGeometry(ringRadius * 0.9, ringRadius, 48);
+
+      // Slate pedestal under Original
+      const origRingMat = new THREE.MeshBasicMaterial({
+        color: '#71717a',
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.65,
+      });
+      const origRing = new THREE.Mesh(ringGeom, origRingMat);
+      origRing.position.set(-splitOffset, 0, 0.05);
+      group.add(origRing);
+
+      // Emerald glowing pedestal under Simplified
+      const simpRingMat = new THREE.MeshBasicMaterial({
+        color: '#10b981',
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.85,
+      });
+      const simpRing = new THREE.Mesh(ringGeom, simpRingMat);
+      simpRing.position.set(splitOffset, 0, 0.05);
+      group.add(simpRing);
     } else {
-      group.add(buildSubGroup(true, 0));
+      isSplitAnchoredRef.current = false;
+      if (displayMode === 'original') {
+        group.add(buildSubGroup(false, 0));
+      } else {
+        group.add(buildSubGroup(true, 0));
+      }
     }
 
     // Auto-frame camera when a new 3MF file is loaded
@@ -473,21 +548,45 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     highlightColorBorders,
   ]);
 
+  // Compute total triangle counts for 3D-anchored badges
+  const totalOrigTris = meshes.reduce(
+    (acc, m) => acc + m.expandedTriangles.length / 3,
+    0
+  );
+  const totalSimpTris = simplifiedMeshes.reduce(
+    (acc, m) => acc + m.simplifiedTriangles,
+    0
+  );
+  const reductionPct =
+    totalOrigTris > 0 && totalSimpTris > 0
+      ? Math.max(0, Math.round((1 - totalSimpTris / totalOrigTris) * 100))
+      : 0;
+
   return (
-    <div ref={containerRef} className="relative w-full h-full select-none touch-none">
-      {displayMode === 'split' && (
-        <div className="pointer-events-none absolute top-14 sm:top-4 left-1/2 -translate-x-1/2 flex items-center gap-2 sm:gap-6 px-3 sm:px-4 py-1 sm:py-1.5 rounded-full bg-zinc-900/90 border border-zinc-800 text-[10px] sm:text-xs font-medium text-zinc-300 shadow-lg whitespace-nowrap z-10">
-          <span className="flex items-center gap-1.5 sm:gap-2">
-            <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-zinc-400" />
-            <span className="hidden xs:inline">Left: </span>Original
-          </span>
-          <span className="text-zinc-600">|</span>
-          <span className="flex items-center gap-1.5 sm:gap-2 text-emerald-400">
-            <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-emerald-400" />
-            <span className="hidden xs:inline">Right: </span>Simplified
-          </span>
-        </div>
-      )}
+    <div ref={containerRef} className="relative w-full h-full select-none touch-none overflow-hidden">
+      {/* 3D-Anchored Floating Badge: Original Mesh (Moves with 3D model in real time) */}
+      <div
+        ref={origLabelRef}
+        style={{ display: 'none', position: 'absolute', top: 0, left: 0 }}
+        className="pointer-events-none z-20 px-2.5 py-1 rounded-full bg-zinc-950/90 border border-zinc-700/80 shadow-2xl text-[11px] font-medium text-zinc-200 flex items-center gap-1.5 whitespace-nowrap backdrop-blur-md"
+      >
+        <span className="w-2 h-2 rounded-full bg-zinc-400 shrink-0" />
+        <span>Original</span>
+        <span className="font-mono text-zinc-400">({totalOrigTris.toLocaleString()} tris)</span>
+      </div>
+
+      {/* 3D-Anchored Floating Badge: Simplified Mesh (Moves with 3D model in real time) */}
+      <div
+        ref={simpLabelRef}
+        style={{ display: 'none', position: 'absolute', top: 0, left: 0 }}
+        className="pointer-events-none z-20 px-2.5 py-1 rounded-full bg-zinc-950/90 border border-emerald-500/60 shadow-2xl shadow-emerald-500/20 text-[11px] font-semibold text-emerald-300 flex items-center gap-1.5 whitespace-nowrap backdrop-blur-md"
+      >
+        <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0 shadow-[0_0_8px_rgba(52,211,153,0.9)]" />
+        <span>Simplified</span>
+        <span className="font-mono text-emerald-400 font-bold">
+          ({totalSimpTris.toLocaleString()} tris • -{reductionPct}%)
+        </span>
+      </div>
     </div>
   );
 };
