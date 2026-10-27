@@ -4,6 +4,8 @@ import {
   Parsed3MFArchive,
   ParsedMeshObject,
   SimplifiedMeshResult,
+  CutMeshResult,
+  CutPartMesh,
 } from './types';
 import {
   encodePaintState,
@@ -391,7 +393,7 @@ export function parse3MFArchive(
  * avoiding V8's `RangeError: Invalid string length` on 100MB–500MB+ `.model` files!
  */
 function buildObjectMeshBytes(
-  sm: SimplifiedMeshResult,
+  sm: { vertices: Float32Array; triangles: Uint32Array; paintStates: Uint8Array },
   attrName: 'paint_color' | 'slic3rpe:mmu_segmentation'
 ): Uint8Array[] {
   const chunks: Uint8Array[] = [];
@@ -559,5 +561,124 @@ export function exportSimplified3MF(
     }
   }
 
+  return zipSync(outFiles, { level: 6 });
+}
+
+/**
+ * Packages a planar cut result (Part A, Part B, and optional Dowel Pin) into a valid .3mf archive
+ * ready for Bambu Studio / OrcaSlicer / PrusaSlicer.
+ * Objects are placed side-by-side on the build plate so they don't intersect.
+ */
+export function exportCut3MF(
+  archive: Parsed3MFArchive,
+  cutResult: CutMeshResult,
+  options?: {
+    plateSpacingMm?: number;
+    assembleInPlace?: boolean;
+  }
+): Uint8Array {
+  const outFiles: Record<string, Uint8Array> = { ...archive.files };
+  const assembleInPlace = options?.assembleInPlace ?? false;
+  const spacing = options?.plateSpacingMm ?? 20;
+  const modelPath = archive.meshes[0]?.modelPath || '3D/3dmodel.model';
+  const attrName = archive.meshes[0]?.paintAttrName || 'paint_color';
+
+  const parts: CutPartMesh[] = [cutResult.partA, cutResult.partB];
+  if (cutResult.dowelPin) {
+    parts.push(cutResult.dowelPin);
+  }
+
+  let curX = 0;
+  const transforms: string[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    if (assembleInPlace) {
+      transforms.push('1 0 0 0 1 0 0 0 1 0 0 0');
+    } else {
+      const width = part.bounds.max[0] - part.bounds.min[0];
+      const offsetX = curX - part.bounds.min[0];
+      transforms.push(`1 0 0 0 1 0 0 0 1 ${offsetX.toFixed(4)} 0 0`);
+      curX += width + spacing;
+    }
+  }
+
+  const chunks: Uint8Array[] = [];
+  chunks.push(
+    strToU8(
+      '<?xml version="1.0" encoding="UTF-8"?>\n' +
+        '<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:slic3rpe="http://schemas.slic3r.org/3mf/2017/06">\n' +
+        ' <metadata name="Application">Prism3MF</metadata>\n' +
+        ' <resources>\n'
+    )
+  );
+
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    const objId = String(i + 1);
+    chunks.push(strToU8(`  <object id="${objId}" name="${part.name}" type="model">\n`));
+    const meshChunks = buildObjectMeshBytes(part, attrName);
+    for (let c = 0; c < meshChunks.length; c++) {
+      chunks.push(meshChunks[c]);
+    }
+    chunks.push(strToU8('\n  </object>\n'));
+  }
+
+  chunks.push(strToU8(' </resources>\n <build>\n'));
+  for (let i = 0; i < parts.length; i++) {
+    const objId = String(i + 1);
+    chunks.push(strToU8(`  <item objectid="${objId}" transform="${transforms[i]}" />\n`));
+  }
+  chunks.push(strToU8(' </build>\n</model>'));
+
+  outFiles[modelPath] = concatUint8Arrays(chunks);
+
+  const totalTris = parts.reduce((acc, p) => acc + p.triangleCount, 0);
+  for (const [path, bytes] of Object.entries(outFiles)) {
+    if (path.toLowerCase().endsWith('model_settings.config')) {
+      let configXml = strFromU8(bytes);
+      configXml = configXml.replace(
+        /\bface_count=["']\d+["']/gi,
+        `face_count="${totalTris}"`
+      );
+      outFiles[path] = strToU8(configXml);
+    }
+  }
+
+  return zipSync(outFiles, { level: 6 });
+}
+
+/**
+ * Exports an individual cut part as a standalone .3mf archive.
+ */
+export function exportCutPart3MF(
+  archive: Parsed3MFArchive,
+  part: CutPartMesh
+): Uint8Array {
+  const outFiles: Record<string, Uint8Array> = { ...archive.files };
+  const modelPath = archive.meshes[0]?.modelPath || '3D/3dmodel.model';
+  const attrName = archive.meshes[0]?.paintAttrName || 'paint_color';
+
+  const chunks: Uint8Array[] = [];
+  chunks.push(
+    strToU8(
+      '<?xml version="1.0" encoding="UTF-8"?>\n' +
+        '<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:slic3rpe="http://schemas.slic3r.org/3mf/2017/06">\n' +
+        ' <metadata name="Application">Prism3MF</metadata>\n' +
+        ' <resources>\n' +
+        `  <object id="1" name="${part.name}" type="model">\n`
+    )
+  );
+
+  const meshChunks = buildObjectMeshBytes(part, attrName);
+  for (let c = 0; c < meshChunks.length; c++) {
+    chunks.push(meshChunks[c]);
+  }
+  chunks.push(
+    strToU8(
+      '\n  </object>\n </resources>\n <build>\n  <item objectid="1" />\n </build>\n</model>'
+    )
+  );
+
+  outFiles[modelPath] = concatUint8Arrays(chunks);
   return zipSync(outFiles, { level: 6 });
 }

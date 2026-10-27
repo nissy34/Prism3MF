@@ -18,21 +18,24 @@ import {
   ChevronDown,
   ChevronUp,
   Github,
+  Scissors,
 } from 'lucide-react';
 import {
   SimplificationOptions,
   SimplifiedMeshResult,
   FilamentInfo,
+  CutConnectorOptions,
+  CutMeshResult,
 } from './core';
 import { generateSample3MF } from './core/sample3mfGenerator';
 import {
   ThreeViewport,
   ViewportDisplayMode,
 } from './components/ThreeViewport';
-import { ModelTelemetryCard } from './components/ModelTelemetryCard';
-import { FilamentPaletteCard } from './components/FilamentPaletteCard';
+import { ModelInfoAccordion } from './components/ModelInfoAccordion';
+import { LandingHero } from './components/LandingHero';
 import { SimplifyControlCard } from './components/SimplifyControlCard';
-import { QemOptionsPanel } from './components/QemOptionsPanel';
+import { CutSplitterControlCard } from './components/CutSplitterControlCard';
 import type {
   LightweightMeshInfo,
   WorkerRequestMessage,
@@ -53,6 +56,25 @@ export function App() {
   const [filaments, setFilaments] = useState<FilamentInfo[]>([]);
   const [simplifiedMeshes, setSimplifiedMeshes] = useState<SimplifiedMeshResult[]>([]);
 
+  // Active Tool Mode
+  const [toolMode, setToolMode] = useState<'simplify' | 'cut'>('simplify');
+
+  // Planar Cut Splitter State
+  const [cutPlaneZ, setCutPlaneZ] = useState<number>(25.0);
+  const [cutPlaneNormal, setCutPlaneNormal] = useState<[number, number, number]>([0, 0, 1]);
+  const [cutCapFaces, setCutCapFaces] = useState<boolean>(true);
+  const [cutConnectors, setCutConnectors] = useState<CutConnectorOptions>({
+    enabled: true,
+    style: 'dowel_sockets',
+    diameter: 5.0,
+    length: 8.0,
+    tolerance: 0.2,
+  });
+  const [cutResult, setCutResult] = useState<CutMeshResult | null>(null);
+  const [explodedOffset, setExplodedOffset] = useState<number>(0);
+  const [useSimplifiedForCut, setUseSimplifiedForCut] = useState<boolean>(true);
+  const [simplificationTarget, setSimplificationTarget] = useState<'cut' | 'uncut'>('cut');
+
   // Primary Simplification Control
   const [targetRatio, setTargetRatio] = useState<number>(0.25); // 25% of original triangles (75% reduction)
 
@@ -63,9 +85,8 @@ export function App() {
   const [maxGeometricError, setMaxGeometricError] = useState<number>(0.02);
   const [lockOpenBorders, setLockOpenBorders] = useState<boolean>(true);
 
-  // QEM Panel Open & Pin states
+  // QEM Panel Open state
   const [isQemOptionsOpen, setIsQemOptionsOpen] = useState<boolean>(false);
-  const [isQemPinned, setIsQemPinned] = useState<boolean>(false);
 
   // Mobile Floating Deck Expanded state
   const [isMobileDeckExpanded, setIsMobileDeckExpanded] = useState<boolean>(true);
@@ -74,7 +95,7 @@ export function App() {
   const [appliedOptions, setAppliedOptions] = useState<SimplificationOptions | null>(null);
 
   // Viewport controls
-  const [displayMode, setDisplayMode] = useState<ViewportDisplayMode>('simplified');
+  const [displayMode, setDisplayMode] = useState<ViewportDisplayMode>('original');
   const [showWireframe, setShowWireframe] = useState<boolean>(true);
   const [highlightColorBorders, setHighlightColorBorders] = useState<boolean>(false);
 
@@ -94,6 +115,28 @@ export function App() {
   const archiveFileNameRef = useRef<string>('model.3mf');
   const targetRatioRef = useRef<number>(0.25);
   targetRatioRef.current = targetRatio;
+
+  const meshBounds = React.useMemo(() => {
+    if (!archive || archive.meshes.length === 0) {
+      return { min: [0, 0, 0] as [number, number, number], max: [0, 0, 50] as [number, number, number] };
+    }
+    const verts = archive.meshes[0].expandedVertices;
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    for (let i = 0; i < verts.length; i += 3) {
+      const x = verts[i], y = verts[i + 1], z = verts[i + 2];
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (z < minZ) minZ = z;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+      if (z > maxZ) maxZ = z;
+    }
+    return {
+      min: [minX, minY, minZ] as [number, number, number],
+      max: [maxX, maxY, maxZ] as [number, number, number],
+    };
+  }, [archive]);
 
   const createWorker = useCallback(() => {
     if (workerRef.current) {
@@ -127,13 +170,35 @@ export function App() {
         setAppliedOptions(null);
         setIsProcessing(false);
         setProgress(100);
+        const verts = msg.meshes[0]?.expandedVertices;
+        if (verts && verts.length > 0) {
+          let minZ = Infinity, maxZ = -Infinity;
+          for (let i = 2; i < verts.length; i += 3) {
+            if (verts[i] < minZ) minZ = verts[i];
+            if (verts[i] > maxZ) maxZ = verts[i];
+          }
+          setCutPlaneZ(Number(((minZ + maxZ) / 2).toFixed(1)));
+        }
+        setCutResult(null);
+        setExplodedOffset(0);
+
         // Auto-disable wireframe on huge 500k+ triangle models so initial render is silky-smooth
         if (msg.totalRawTriangles > 200000) {
           setShowWireframe(false);
         }
+      } else if (msg.type === 'CUT_DONE') {
+        setCutResult(msg.result);
+        setSimplificationTarget('cut');
+        setExplodedOffset(12);
+        setDisplayMode('result'); // Automatically switch to result view to show cut parts!
+        setIsProcessing(false);
+        setProgress(100);
       } else if (msg.type === 'SIMPLIFIED') {
         setSimplifiedMeshes(msg.results);
-        setDisplayMode('simplified'); // Automatically switch to simplified view to show the result!
+        if (msg.cutResult) {
+          setCutResult(msg.cutResult);
+        }
+        setDisplayMode('result'); // Automatically switch to result view to show the result!
         setProcessingTimeMs(msg.elapsedMs);
         setIsProcessing(false);
         setProgress(100);
@@ -147,7 +212,7 @@ export function App() {
         const baseName = archiveFileNameRef.current.replace(/\.3mf$/i, '');
         const pct = Math.round(targetRatioRef.current * 100);
         a.href = url;
-        a.download = `${baseName}_simplified_${pct}pct.3mf`;
+        a.download = msg.suggestedFileName || `${baseName}_simplified_${pct}pct.3mf`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -220,19 +285,142 @@ export function App() {
       type: 'SIMPLIFY',
       jobId: nextJobId,
       options: opts,
+      target: 'original',
+    };
+    workerRef.current.postMessage(req);
+  };
+
+  const handleSimplifyCutParts = (targetRatioOverride?: number) => {
+    if (!archive || !cutResult || !workerRef.current) return;
+    const nextJobId = ++jobIdRef.current;
+    const ratioToUse = targetRatioOverride ?? targetRatio;
+    const opts: SimplificationOptions = {
+      targetRatio: ratioToUse,
+      lockColorBoundaries,
+      colorBoundaryWeight,
+      resolveSubdivisions,
+      maxGeometricError,
+      lockOpenBorders,
+    };
+    setAppliedOptions(opts);
+    setIsProcessing(true);
+    setProgressStage('Simplifying Cut Parts (Upper & Lower)...');
+    setProgress(0);
+    setErrorMsg(null);
+
+    const req: WorkerRequestMessage = {
+      type: 'SIMPLIFY_CUT',
+      jobId: nextJobId,
+      options: opts,
+    };
+    workerRef.current.postMessage(req);
+  };
+
+  const handleRevertCutSimplification = () => {
+    if (!cutResult || !cutResult.originalPartA || !cutResult.originalPartB) return;
+    setCutResult({
+      ...cutResult,
+      partA: cutResult.originalPartA,
+      partB: cutResult.originalPartB,
+      isSimplified: false,
+    });
+    setAppliedOptions(null);
+  };
+
+  const handleCancelSimplification = () => {
+    if (cutResult && (toolMode === 'cut' || simplificationTarget === 'cut') && cutResult.isSimplified) {
+      handleRevertCutSimplification();
+    } else {
+      setSimplifiedMeshes([]);
+      setAppliedOptions(null);
+      if (cutResult !== null) {
+        setDisplayMode('result');
+      } else {
+        setDisplayMode('original');
+      }
+    }
+  };
+
+  const handleUndoCut = () => {
+    const wasCutSimplified = Boolean(cutResult?.isSimplified);
+    setCutResult(null);
+    setSimplificationTarget('uncut');
+
+    if (simplifiedMeshes.length > 0) {
+      // If uncut model was already simplified, stay on result view to show simplified model!
+      setDisplayMode('result');
+    } else if (wasCutSimplified) {
+      // If simplification was performed on cut parts, seamlessly preserve simplification on the uncut model
+      setDisplayMode('result');
+      triggerSimplificationWithOptions({
+        targetRatio,
+        lockColorBoundaries,
+        colorBoundaryWeight,
+        resolveSubdivisions,
+        maxGeometricError,
+        lockOpenBorders,
+      });
+    } else {
+      setDisplayMode('original');
+    }
+  };
+
+  const handleExecuteCut = () => {
+    if (!archive || !workerRef.current) return;
+    const nextJobId = ++jobIdRef.current;
+    setIsProcessing(true);
+    setProgressStage('Slicing Painted Mesh & Generating Alignment Dowels...');
+    setProgress(30);
+    setErrorMsg(null);
+
+    const req: WorkerRequestMessage = {
+      type: 'CUT',
+      jobId: nextJobId,
+      options: {
+        planePoint: [0, 0, cutPlaneZ],
+        planeNormal: cutPlaneNormal,
+        capFaces: cutCapFaces,
+        capPaintSlot: 1,
+        connectors: cutConnectors,
+      },
+      useSimplifiedIfAvailable: isSimplified && useSimplifiedForCut,
+    };
+    workerRef.current.postMessage(req);
+  };
+
+  const handleExportCut = (
+    partType: 'all' | 'partA' | 'partB' | 'dowel',
+    assembleInPlace = false
+  ) => {
+    if (!archive || !cutResult || !workerRef.current) return;
+    const nextJobId = ++jobIdRef.current;
+    setIsExporting(true);
+    setProgressStage('Packaging Cut Parts .3MF Archive...');
+    setProgress(40);
+
+    const req: WorkerRequestMessage = {
+      type: 'EXPORT_CUT',
+      jobId: nextJobId,
+      partType,
+      assembleInPlace,
     };
     workerRef.current.postMessage(req);
   };
 
   const handleApplySimplification = () => {
-    triggerSimplificationWithOptions({
+    const opts: SimplificationOptions = {
       targetRatio,
       lockColorBoundaries,
       colorBoundaryWeight,
       resolveSubdivisions,
       maxGeometricError,
       lockOpenBorders,
-    });
+    };
+    if (cutResult && (toolMode === 'cut' || simplificationTarget === 'cut')) {
+      handleSimplifyCutParts(targetRatio);
+    } else {
+      triggerSimplificationWithOptions(opts);
+    }
   };
 
   const handleFileUpload = async (file: File) => {
@@ -245,6 +433,10 @@ export function App() {
   };
 
   const handleExport3MF = () => {
+    if (cutResult && (toolMode === 'cut' || simplificationTarget === 'cut')) {
+      handleExportCut('all', false);
+      return;
+    }
     if (!archive || simplifiedMeshes.length === 0 || !workerRef.current) return;
     const nextJobId = ++jobIdRef.current;
     setIsExporting(true);
@@ -270,14 +462,38 @@ export function App() {
     setLockOpenBorders(true);
   };
 
-  // Compute live statistics
+  // Compute live statistics (adapts to whether cut model or uncut model is active target)
+  const isCutActive = cutResult !== null && (toolMode === 'cut' || simplificationTarget === 'cut');
+
+  const cutBaselineTris = cutResult
+    ? (cutResult.originalPartA?.triangleCount ?? cutResult.partA.triangleCount) +
+      (cutResult.originalPartB?.triangleCount ?? cutResult.partB.triangleCount)
+    : 0;
+  const cutSimplifiedTris = cutResult?.isSimplified
+    ? cutResult.partA.triangleCount + cutResult.partB.triangleCount
+    : 0;
+
   const origRawTris = archive?.totalRawTriangles ?? 0;
   const origExpandedTris = archive?.totalExpandedTriangles ?? 0;
-  const currentSimplifiedTris = simplifiedMeshes.reduce(
+  const fullModelSimplifiedTris = simplifiedMeshes.reduce(
     (acc, m) => acc + m.simplifiedTriangles,
     0
   );
-  const baselineTris = resolveSubdivisions ? origExpandedTris : origRawTris;
+
+  const baselineTris = isCutActive
+    ? cutBaselineTris
+    : resolveSubdivisions
+      ? origExpandedTris
+      : origRawTris;
+
+  const currentSimplifiedTris = isCutActive
+    ? cutSimplifiedTris
+    : fullModelSimplifiedTris;
+
+  const isSimplified = isCutActive
+    ? Boolean(cutResult?.isSimplified)
+    : simplifiedMeshes.length > 0;
+
   const reductionPct =
     baselineTris > 0 && currentSimplifiedTris > 0
       ? Math.max(0, Math.round((1 - currentSimplifiedTris / baselineTris) * 100))
@@ -285,8 +501,6 @@ export function App() {
 
   const totalSubdividedTris =
     archive?.meshes.reduce((acc, m) => acc + m.subdividedTriangleCount, 0) ?? 0;
-
-  const isSimplified = simplifiedMeshes.length > 0;
 
   const hasUnappliedChanges =
     archive !== null &&
@@ -340,11 +554,13 @@ export function App() {
                 Prism3MF
               </h1>
               <span className="hidden xs:inline-block text-[10px] sm:text-[11px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 whitespace-nowrap">
-                Color-Preserving QEM
+                {toolMode === 'simplify' ? 'Color-Preserving QEM' : 'Planar Cut Splitter'}
               </span>
             </div>
             <p className="hidden xl:block text-xs text-zinc-400 truncate">
-              Simplify multi-color 3MF models while locking painted filament zones
+              {toolMode === 'simplify'
+                ? 'Simplify multi-color 3MF models while locking painted filament zones'
+                : 'Cut oversized multi-color models to fit build plates with alignment dowels'}
             </p>
           </div>
         </div>
@@ -428,33 +644,22 @@ export function App() {
             <span className="hidden sm:inline"> .3MF</span>
           </button>
 
-          {/* QEM & Download buttons: only shown when a model is loaded */}
-          {archive && (
-            <>
+          {/* Download button: shown when a model is loaded */}
+          {archive && (() => {
+            const canDownload = (isSimplified || cutResult !== null) && !isProcessing && !isExporting;
+            return (
               <button
                 type="button"
-                onClick={() => setIsQemOptionsOpen((prev) => !prev)}
-                className={`relative px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors border ${
-                  isQemOptionsOpen
-                    ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
-                    : 'bg-zinc-800/80 border-zinc-700/70 text-zinc-300 hover:bg-zinc-800'
-                }`}
-                title="Extra QEM Algorithm Options (Pin to workspace or adjust boundary constraints)"
-              >
-                <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="hidden xs:inline">QEM Options</span>
-                <span className="xs:hidden">QEM</span>
-                {hasCustomQemSettings && (
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 absolute -top-0.5 -right-0.5 animate-pulse" />
-                )}
-              </button>
-
-              <button
-                type="button"
-                disabled={!isSimplified || isProcessing || isExporting}
+                disabled={!canDownload}
                 onClick={handleExport3MF}
-                className="px-2.5 sm:px-4 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 disabled:opacity-35 disabled:hover:bg-emerald-500 text-zinc-950 flex items-center gap-1.5 transition-colors shadow-xs shrink-0"
-                title={!isSimplified ? 'Simplify mesh first to download' : 'Download simplified .3MF file'}
+                className="px-2.5 sm:px-4 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 disabled:opacity-35 disabled:hover:bg-emerald-500 text-zinc-950 flex items-center gap-1.5 transition-colors shadow-xs shrink-0 cursor-pointer"
+                title={
+                  !canDownload
+                    ? 'Cut or simplify mesh first to download'
+                    : cutResult !== null
+                      ? 'Download cut .3MF model'
+                      : 'Download simplified .3MF file'
+                }
               >
                 <Download className="w-3.5 h-3.5 shrink-0" />
                 <span>
@@ -468,8 +673,8 @@ export function App() {
                   )}
                 </span>
               </button>
-            </>
-          )}
+            );
+          })()}
         </div>
       </header>
 
@@ -477,9 +682,9 @@ export function App() {
       <div className="flex flex-1 min-h-0 overflow-hidden relative">
         {/* Desktop Left Workspace Sidebar: ONLY rendered when a model is loaded! */}
         {archive && (
-          <aside className="hidden md:flex flex-col w-84 lg:w-96 border-r border-zinc-800/90 bg-zinc-900/60 shrink-0 h-full overflow-y-auto p-3.5 space-y-3.5 animate-in fade-in slide-in-from-left duration-200">
-            {/* Telemetry Card */}
-            <ModelTelemetryCard
+          <aside className="hidden md:flex flex-col w-84 lg:w-96 border-r border-zinc-800/90 bg-zinc-900/60 shrink-0 h-full overflow-y-auto p-3.5 space-y-3 animate-in fade-in slide-in-from-left duration-200">
+            {/* Option B: Collapsible Model Info & Filaments on top (36px when collapsed) */}
+            <ModelInfoAccordion
               fileName={archive.fileName}
               fileSize={archive.fileSize}
               baselineTris={baselineTris}
@@ -488,32 +693,104 @@ export function App() {
               reductionPct={reductionPct}
               processingTimeMs={processingTimeMs}
               totalSubdividedTris={totalSubdividedTris}
-            />
-
-            {/* Filament Palette Card */}
-            <FilamentPaletteCard
               filaments={filaments}
               onFilamentColorChange={handleFilamentColorChange}
+              cutResult={cutResult}
             />
 
-            {/* Simplification Controls Card */}
-            <SimplifyControlCard
-              targetRatio={targetRatio}
-              onTargetRatioChange={setTargetRatio}
-              baselineTris={baselineTris}
-              estimatedTargetTris={estimatedTargetTris}
-              isProcessing={isProcessing}
-              progress={progress}
-              isSimplified={isSimplified}
-              hasUnappliedChanges={hasUnappliedChanges}
-              onApplySimplification={handleApplySimplification}
-              onExport3MF={handleExport3MF}
-              isExporting={isExporting}
-              archiveLoaded={archive !== null}
-              onToggleQemOptions={() => setIsQemOptionsOpen((v) => !v)}
-              isQemOptionsOpen={isQemOptionsOpen}
-              hasCustomQemSettings={hasCustomQemSettings}
-            />
+            {/* Tool Selector Tabs: Immediately below model info */}
+            <div className="flex rounded-xl bg-zinc-950/90 p-1 border border-zinc-800 shadow-inner shrink-0">
+              <button
+                type="button"
+                onClick={() => setToolMode('cut')}
+                className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                  toolMode === 'cut'
+                    ? 'bg-emerald-500 text-zinc-950 shadow-md font-bold'
+                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
+                }`}
+              >
+                <Scissors className="w-3.5 h-3.5" />
+                <span>Split / Cut</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setToolMode('simplify')}
+                className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                  toolMode === 'simplify'
+                    ? 'bg-emerald-500 text-zinc-950 shadow-md font-bold'
+                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
+                }`}
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>Simplify</span>
+              </button>
+            </div>
+
+            {/* Mode: Simplify vs Cut Splitter */}
+            {toolMode === 'simplify' ? (
+              <SimplifyControlCard
+                targetRatio={targetRatio}
+                onTargetRatioChange={setTargetRatio}
+                baselineTris={baselineTris}
+                estimatedTargetTris={estimatedTargetTris}
+                isProcessing={isProcessing}
+                progress={progress}
+                isSimplified={isSimplified}
+                hasUnappliedChanges={hasUnappliedChanges}
+                onApplySimplification={handleApplySimplification}
+                onCancelSimplification={handleCancelSimplification}
+                onExport3MF={handleExport3MF}
+                isExporting={isExporting}
+                archiveLoaded={archive !== null}
+                onToggleQemOptions={() => setIsQemOptionsOpen((v) => !v)}
+                isQemOptionsOpen={isQemOptionsOpen}
+                hasCustomQemSettings={hasCustomQemSettings}
+                hasCutResult={cutResult !== null}
+                simplificationTarget={simplificationTarget}
+                onSimplificationTargetChange={setSimplificationTarget}
+                lockColorBoundaries={lockColorBoundaries}
+                onLockColorBoundariesChange={setLockColorBoundaries}
+                colorBoundaryWeight={colorBoundaryWeight}
+                onColorBoundaryWeightChange={setColorBoundaryWeight}
+                resolveSubdivisions={resolveSubdivisions}
+                onResolveSubdivisionsChange={setResolveSubdivisions}
+                maxGeometricError={maxGeometricError}
+                onMaxGeometricErrorChange={setMaxGeometricError}
+                lockOpenBorders={lockOpenBorders}
+                onLockOpenBordersChange={setLockOpenBorders}
+                onResetDefaults={handleResetQemDefaults}
+              />
+            ) : (
+              <CutSplitterControlCard
+                meshBounds={meshBounds}
+                cutPlaneZ={cutPlaneZ}
+                onCutPlaneZChange={setCutPlaneZ}
+                cutPlaneNormal={cutPlaneNormal}
+                onCutPlaneNormalChange={setCutPlaneNormal}
+                connectorOptions={cutConnectors}
+                onConnectorOptionsChange={setCutConnectors}
+                capFaces={cutCapFaces}
+                onCapFacesChange={setCutCapFaces}
+                onExecuteCut={handleExecuteCut}
+                onUndoCut={handleUndoCut}
+                isProcessing={isProcessing}
+                cutResult={cutResult}
+                explodedOffset={explodedOffset}
+                onExplodedOffsetChange={setExplodedOffset}
+                onExport={handleExportCut}
+                isExporting={isExporting}
+                isSimplified={isSimplified}
+                baselineTris={baselineTris}
+                simplifiedTris={currentSimplifiedTris}
+                useSimplifiedForCut={useSimplifiedForCut}
+                onToggleUseSimplifiedForCut={setUseSimplifiedForCut}
+                onCancelSimplification={handleCancelSimplification}
+                targetRatio={targetRatio}
+                onTargetRatioChange={setTargetRatio}
+                onSimplifyCutParts={handleSimplifyCutParts}
+                onRevertCutSimplification={handleRevertCutSimplification}
+              />
+            )}
           </aside>
         )}
 
@@ -524,58 +801,72 @@ export function App() {
             <div className="absolute top-2 sm:top-4 left-2 sm:left-4 right-2 sm:right-4 z-10 flex flex-wrap sm:flex-nowrap items-center justify-between pointer-events-none gap-1 sm:gap-1.5">
               {/* Left: View Mode Toggle */}
               <div className="flex items-center gap-0.5 sm:gap-1 p-0.5 sm:p-1 rounded-lg bg-zinc-900/90 border border-zinc-800 backdrop-blur-md shadow-lg pointer-events-auto shrink-0">
-                <button
-                  type="button"
-                  disabled={!isSimplified}
-                  onClick={() => setDisplayMode('simplified')}
-                  className={`px-1.5 sm:px-3 py-1 sm:py-1.5 rounded-md text-[11px] sm:text-xs font-medium flex items-center gap-1 sm:gap-1.5 transition-colors ${
-                    !isSimplified
-                      ? 'opacity-35 cursor-not-allowed text-zinc-500'
-                      : displayMode === 'simplified'
-                        ? 'bg-emerald-500 text-zinc-950 font-semibold shadow-xs'
-                        : 'text-zinc-300 hover:bg-zinc-800'
-                  }`}
-                  title={!isSimplified ? 'Simplify mesh first to view simplified version' : 'View simplified model'}
-                >
-                  <Eye className="w-3.5 h-3.5 shrink-0" />
-                  <span className="hidden sm:inline">
-                    Simplified {isSimplified ? `(${currentSimplifiedTris.toLocaleString()} tris)` : ''}
-                  </span>
-                  <span className="sm:hidden">Simple</span>
-                </button>
+                {(() => {
+                  const hasResult = isSimplified || cutResult !== null;
+                  const isResultActive = displayMode === 'result' || displayMode === 'simplified';
 
-                <button
-                  type="button"
-                  onClick={() => setDisplayMode('original')}
-                  className={`px-1.5 sm:px-3 py-1 sm:py-1.5 rounded-md text-[11px] sm:text-xs font-medium flex items-center gap-1 sm:gap-1.5 transition-colors ${
-                    displayMode === 'original'
-                      ? 'bg-emerald-500 text-zinc-950 font-semibold shadow-xs'
-                      : 'text-zinc-300 hover:bg-zinc-800'
-                  }`}
-                  title="View original unsimplified model"
-                >
-                  <Layers className="w-3.5 h-3.5 shrink-0" />
-                  <span className="hidden sm:inline">Original ({baselineTris.toLocaleString()} tris)</span>
-                  <span className="sm:hidden">Orig</span>
-                </button>
+                  return (
+                    <>
+                      <button
+                        type="button"
+                        disabled={!hasResult}
+                        onClick={() => setDisplayMode('result')}
+                        className={`px-1.5 sm:px-3 py-1 sm:py-1.5 rounded-md text-[11px] sm:text-xs font-medium flex items-center gap-1 sm:gap-1.5 transition-colors ${
+                          !hasResult
+                            ? 'opacity-35 cursor-not-allowed text-zinc-500'
+                            : isResultActive
+                              ? 'bg-emerald-500 text-zinc-950 font-semibold shadow-xs'
+                              : 'text-zinc-300 hover:bg-zinc-800'
+                        }`}
+                        title={
+                          !hasResult
+                            ? 'Execute a tool (Cut or Simplify) first to view result'
+                            : 'View modified result model'
+                        }
+                      >
+                        <Eye className="w-3.5 h-3.5 shrink-0" />
+                        <span>Result</span>
+                      </button>
 
-                <button
-                  type="button"
-                  disabled={!isSimplified}
-                  onClick={() => setDisplayMode('split')}
-                  className={`px-1.5 sm:px-3 py-1 sm:py-1.5 rounded-md text-[11px] sm:text-xs font-medium flex items-center gap-1 sm:gap-1.5 transition-colors ${
-                    !isSimplified
-                      ? 'opacity-35 cursor-not-allowed text-zinc-500'
-                      : displayMode === 'split'
-                        ? 'bg-emerald-500 text-zinc-950 font-semibold shadow-xs'
-                        : 'text-zinc-300 hover:bg-zinc-800'
-                  }`}
-                  title={!isSimplified ? 'Simplify mesh first to compare' : 'Compare before and after'}
-                >
-                  <Columns className="w-3.5 h-3.5 shrink-0" />
-                  <span className="hidden sm:inline">Before / After Split</span>
-                  <span className="sm:hidden">Split</span>
-                </button>
+                      <button
+                        type="button"
+                        onClick={() => setDisplayMode('original')}
+                        className={`px-1.5 sm:px-3 py-1 sm:py-1.5 rounded-md text-[11px] sm:text-xs font-medium flex items-center gap-1 sm:gap-1.5 transition-colors ${
+                          displayMode === 'original'
+                            ? 'bg-emerald-500 text-zinc-950 font-semibold shadow-xs'
+                            : 'text-zinc-300 hover:bg-zinc-800'
+                        }`}
+                        title="View original untouched model (uncut and unsimplified)"
+                      >
+                        <Layers className="w-3.5 h-3.5 shrink-0" />
+                        <span className="hidden sm:inline">Original ({baselineTris.toLocaleString()} tris)</span>
+                        <span className="sm:hidden">Orig</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={!hasResult}
+                        onClick={() => setDisplayMode('split')}
+                        className={`px-1.5 sm:px-3 py-1 sm:py-1.5 rounded-md text-[11px] sm:text-xs font-medium flex items-center gap-1 sm:gap-1.5 transition-colors ${
+                          !hasResult
+                            ? 'opacity-35 cursor-not-allowed text-zinc-500'
+                            : displayMode === 'split'
+                              ? 'bg-emerald-500 text-zinc-950 font-semibold shadow-xs'
+                              : 'text-zinc-300 hover:bg-zinc-800'
+                        }`}
+                        title={
+                          !hasResult
+                            ? 'Execute a tool first to compare before and after'
+                            : 'Compare original untouched model side-by-side with result'
+                        }
+                      >
+                        <Columns className="w-3.5 h-3.5 shrink-0" />
+                        <span className="hidden sm:inline">Before / After Split</span>
+                        <span className="sm:hidden">Split</span>
+                      </button>
+                    </>
+                  );
+                })()}
               </div>
 
               {/* Right Viewport Overlay Controls: Wireframe & Color Seams */}
@@ -627,7 +918,7 @@ export function App() {
 
           {/* Mobile Floating Workspace Deck: Telemetry + Filaments + Simplification */}
           {archive && (
-            <div className="md:hidden absolute bottom-9 left-2 right-2 sm:left-4 sm:right-4 z-20 rounded-2xl bg-zinc-900/95 border border-zinc-800/90 backdrop-blur-md shadow-2xl pointer-events-auto transition-all duration-200">
+            <div className="md:hidden absolute bottom-9 left-2 right-2 sm:left-4 sm:right-4 z-20 rounded-2xl bg-zinc-900/95 border border-zinc-800/90 backdrop-blur-md shadow-2xl pointer-events-auto transition-all duration-200 max-h-[75dvh] overflow-y-auto">
               {isMobileDeckExpanded ? (
                 <div className="p-2.5 sm:p-3 space-y-2">
                   {/* Deck Header with Minimize Toggle */}
@@ -650,8 +941,8 @@ export function App() {
                     </button>
                   </div>
 
-                  {/* Telemetry Summary */}
-                  <ModelTelemetryCard
+                  {/* Option B: Collapsible Model Info Accordion on mobile */}
+                  <ModelInfoAccordion
                     fileName={archive.fileName}
                     fileSize={archive.fileSize}
                     baselineTris={baselineTris}
@@ -660,35 +951,106 @@ export function App() {
                     reductionPct={reductionPct}
                     processingTimeMs={processingTimeMs}
                     totalSubdividedTris={totalSubdividedTris}
-                    compact
-                  />
-
-                  {/* Filaments Row */}
-                  <FilamentPaletteCard
                     filaments={filaments}
                     onFilamentColorChange={handleFilamentColorChange}
-                    compact
+                    cutResult={cutResult}
                   />
 
-                  {/* Simplification Slider, Presets & Actions */}
-                  <SimplifyControlCard
-                    targetRatio={targetRatio}
-                    onTargetRatioChange={setTargetRatio}
-                    baselineTris={baselineTris}
-                    estimatedTargetTris={estimatedTargetTris}
-                    isProcessing={isProcessing}
-                    progress={progress}
-                    isSimplified={isSimplified}
-                    hasUnappliedChanges={hasUnappliedChanges}
-                    onApplySimplification={handleApplySimplification}
-                    onExport3MF={handleExport3MF}
-                    isExporting={isExporting}
-                    archiveLoaded={archive !== null}
-                    onToggleQemOptions={() => setIsQemOptionsOpen((v) => !v)}
-                    isQemOptionsOpen={isQemOptionsOpen}
-                    hasCustomQemSettings={hasCustomQemSettings}
-                    compact
-                  />
+                  {/* Tool Switcher on mobile */}
+                  <div className="flex rounded-lg bg-zinc-950/80 p-1 border border-zinc-800 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setToolMode('cut')}
+                      className={`flex-1 py-1.5 px-2 rounded-md text-xs font-semibold flex items-center justify-center gap-1 transition-all ${
+                        toolMode === 'cut'
+                          ? 'bg-emerald-500 text-zinc-950 shadow-md font-bold'
+                          : 'text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      <Scissors className="w-3 h-3" />
+                      <span>Cut</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setToolMode('simplify')}
+                      className={`flex-1 py-1.5 px-2 rounded-md text-xs font-semibold flex items-center justify-center gap-1 transition-all ${
+                        toolMode === 'simplify'
+                          ? 'bg-emerald-500 text-zinc-950 shadow-md font-bold'
+                          : 'text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      <Layers className="w-3 h-3" />
+                      <span>Simplify</span>
+                    </button>
+                  </div>
+
+                  {/* Mode: Simplify vs Cut Splitter */}
+                  {toolMode === 'simplify' ? (
+                    <SimplifyControlCard
+                      targetRatio={targetRatio}
+                      onTargetRatioChange={setTargetRatio}
+                      baselineTris={baselineTris}
+                      estimatedTargetTris={estimatedTargetTris}
+                      isProcessing={isProcessing}
+                      progress={progress}
+                      isSimplified={isSimplified}
+                      hasUnappliedChanges={hasUnappliedChanges}
+                      onApplySimplification={handleApplySimplification}
+                      onCancelSimplification={handleCancelSimplification}
+                      onExport3MF={handleExport3MF}
+                      isExporting={isExporting}
+                      archiveLoaded={archive !== null}
+                      onToggleQemOptions={() => setIsQemOptionsOpen((v) => !v)}
+                      isQemOptionsOpen={isQemOptionsOpen}
+                      hasCustomQemSettings={hasCustomQemSettings}
+                      hasCutResult={cutResult !== null}
+                      simplificationTarget={simplificationTarget}
+                      onSimplificationTargetChange={setSimplificationTarget}
+                      lockColorBoundaries={lockColorBoundaries}
+                      onLockColorBoundariesChange={setLockColorBoundaries}
+                      colorBoundaryWeight={colorBoundaryWeight}
+                      onColorBoundaryWeightChange={setColorBoundaryWeight}
+                      resolveSubdivisions={resolveSubdivisions}
+                      onResolveSubdivisionsChange={setResolveSubdivisions}
+                      maxGeometricError={maxGeometricError}
+                      onMaxGeometricErrorChange={setMaxGeometricError}
+                      lockOpenBorders={lockOpenBorders}
+                      onLockOpenBordersChange={setLockOpenBorders}
+                      onResetDefaults={handleResetQemDefaults}
+                      compact
+                    />
+                  ) : (
+                    <CutSplitterControlCard
+                      meshBounds={meshBounds}
+                      cutPlaneZ={cutPlaneZ}
+                      onCutPlaneZChange={setCutPlaneZ}
+                      cutPlaneNormal={cutPlaneNormal}
+                      onCutPlaneNormalChange={setCutPlaneNormal}
+                      connectorOptions={cutConnectors}
+                      onConnectorOptionsChange={setCutConnectors}
+                      capFaces={cutCapFaces}
+                      onCapFacesChange={setCutCapFaces}
+                      onExecuteCut={handleExecuteCut}
+                      onUndoCut={handleUndoCut}
+                      isProcessing={isProcessing}
+                      cutResult={cutResult}
+                      explodedOffset={explodedOffset}
+                      onExplodedOffsetChange={setExplodedOffset}
+                      onExport={handleExportCut}
+                      isExporting={isExporting}
+                      isSimplified={isSimplified}
+                      baselineTris={baselineTris}
+                      simplifiedTris={currentSimplifiedTris}
+                      useSimplifiedForCut={useSimplifiedForCut}
+                      onToggleUseSimplifiedForCut={setUseSimplifiedForCut}
+                      onCancelSimplification={handleCancelSimplification}
+                      targetRatio={targetRatio}
+                      onTargetRatioChange={setTargetRatio}
+                      onSimplifyCutParts={handleSimplifyCutParts}
+                      onRevertCutSimplification={handleRevertCutSimplification}
+                      compact
+                    />
+                  )}
                 </div>
               ) : (
                 /* Collapsed Minimal Bottom Bar (leaves full screen free for 3D model) */
@@ -805,59 +1167,28 @@ export function App() {
               displayMode={displayMode}
               showWireframe={showWireframe}
               highlightColorBorders={highlightColorBorders}
+              mode={toolMode}
+              simplificationTarget={simplificationTarget}
+              cutPlaneZ={cutPlaneZ}
+              cutPlaneNormal={cutPlaneNormal}
+              onCutPlaneZChange={setCutPlaneZ}
+              onCutPlaneNormalChange={setCutPlaneNormal}
+              cutResult={cutResult}
+              explodedOffset={explodedOffset}
+              isMobileDeckExpanded={isMobileDeckExpanded}
             />
 
-            {/* Empty State Hero Card (Single unified landing card floating over the 3D build plate) */}
+            {/* Multi-Tool Suite Landing Hero */}
             {!archive && !isProcessing && (
-              <div className="absolute inset-0 flex items-center justify-center p-4 sm:p-6 pointer-events-none">
-                <div className="max-w-lg w-full rounded-2xl border border-zinc-700/60 bg-zinc-900/90 backdrop-blur-xl p-6 sm:p-8 text-center space-y-5 shadow-2xl pointer-events-auto">
-                  <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mx-auto shadow-inner">
-                    <Layers className="w-7 h-7" />
-                  </div>
-
-                  <div className="space-y-2">
-                    <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-zinc-100">
-                      Simplify Multi-Color 3MF Files
-                    </h2>
-                    <p className="text-xs sm:text-sm text-zinc-400 leading-relaxed max-w-sm mx-auto">
-                      Decimate dense high-poly meshes up to 90% while strictly locking painted filament zones, logos, and brush strokes.
-                    </p>
-                  </div>
-
-                  <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="w-full sm:w-auto px-5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold bg-emerald-500 hover:bg-emerald-400 text-zinc-950 flex items-center justify-center gap-2 transition-all shadow-lg shadow-emerald-500/20 hover:scale-[1.02]"
-                    >
-                      <Upload className="w-4 h-4" />
-                      Select .3MF File
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleLoadDemoModel}
-                      className="w-full sm:w-auto px-4 py-2.5 rounded-xl text-xs sm:text-sm font-medium bg-zinc-800/90 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 flex items-center justify-center gap-2 transition-colors hover:scale-[1.02]"
-                    >
-                      <Sparkles className="w-4 h-4 text-emerald-400" />
-                      Try Demo Model
-                    </button>
-                  </div>
-
-                  {/* Highlights pills */}
-                  <div className="grid grid-cols-3 gap-2 pt-3 border-t border-zinc-800/70 text-[11px] text-zinc-400">
-                    <div className="flex flex-col items-center gap-0.5">
-                      <span className="text-emerald-400 font-semibold">Color-Locked</span>
-                      <span className="text-[10px] text-zinc-500">Zero color bleed</span>
-                    </div>
-                    <div className="flex flex-col items-center gap-0.5 border-x border-zinc-800/70">
-                      <span className="text-emerald-400 font-semibold">Fast QEM</span>
-                      <span className="text-[10px] text-zinc-500">Up to 90% smaller</span>
-                    </div>
-                    <div className="flex flex-col items-center gap-0.5">
-                      <span className="text-emerald-400 font-semibold">100% Private</span>
-                      <span className="text-[10px] text-zinc-500">In-Browser Worker</span>
-                    </div>
-                  </div>
+              <div className="absolute inset-0 flex items-center justify-center p-3 sm:p-6 pointer-events-none overflow-y-auto">
+                <div className="pointer-events-auto w-full my-auto">
+                  <LandingHero
+                    onSelectFile={() => fileInputRef.current?.click()}
+                    onLoadDemo={(mode) => {
+                      if (mode) setToolMode(mode);
+                      handleLoadDemoModel();
+                    }}
+                  />
                 </div>
               </div>
             )}
@@ -895,56 +1226,6 @@ export function App() {
             </div>
           </div>
         </main>
-
-        {/* Right QEM Options Panel (Desktop pinned or unpinned popover) */}
-        <div className="hidden md:block">
-          <QemOptionsPanel
-            isOpen={isQemOptionsOpen}
-            onClose={() => setIsQemOptionsOpen(false)}
-            isPinned={isQemPinned}
-            onTogglePin={() => setIsQemPinned((v) => !v)}
-            lockColorBoundaries={lockColorBoundaries}
-            onLockColorBoundariesChange={setLockColorBoundaries}
-            colorBoundaryWeight={colorBoundaryWeight}
-            onColorBoundaryWeightChange={setColorBoundaryWeight}
-            resolveSubdivisions={resolveSubdivisions}
-            onResolveSubdivisionsChange={setResolveSubdivisions}
-            maxGeometricError={maxGeometricError}
-            onMaxGeometricErrorChange={setMaxGeometricError}
-            lockOpenBorders={lockOpenBorders}
-            onLockOpenBordersChange={setLockOpenBorders}
-            onResetDefaults={handleResetQemDefaults}
-            onApplyChanges={handleApplySimplification}
-            hasUnappliedChanges={hasUnappliedChanges}
-            isProcessing={isProcessing}
-            mode="panel"
-          />
-        </div>
-      </div>
-
-      {/* Mobile QEM Options Drawer (Slide-up sheet) */}
-      <div className="md:hidden">
-        <QemOptionsPanel
-          isOpen={isQemOptionsOpen}
-          onClose={() => setIsQemOptionsOpen(false)}
-          isPinned={false}
-          onTogglePin={() => {}}
-          lockColorBoundaries={lockColorBoundaries}
-          onLockColorBoundariesChange={setLockColorBoundaries}
-          colorBoundaryWeight={colorBoundaryWeight}
-          onColorBoundaryWeightChange={setColorBoundaryWeight}
-          resolveSubdivisions={resolveSubdivisions}
-          onResolveSubdivisionsChange={setResolveSubdivisions}
-          maxGeometricError={maxGeometricError}
-          onMaxGeometricErrorChange={setMaxGeometricError}
-          lockOpenBorders={lockOpenBorders}
-          onLockOpenBordersChange={setLockOpenBorders}
-          onResetDefaults={handleResetQemDefaults}
-          onApplyChanges={handleApplySimplification}
-          hasUnappliedChanges={hasUnappliedChanges}
-          isProcessing={isProcessing}
-          mode="drawer"
-        />
       </div>
 
       {/* Modal: Core SDK & Programmatic Usage */}

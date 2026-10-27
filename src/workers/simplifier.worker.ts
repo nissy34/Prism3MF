@@ -3,12 +3,18 @@ import { decodeDominantPaintState } from '../core/paintColorCodec';
 import {
   parse3MFArchive,
   exportSimplified3MF,
+  exportCut3MF,
+  exportCutPart3MF,
 } from '../core/threeMfProcessor';
+import { cutPaintedMesh } from '../core/meshCutter';
 import {
   FilamentInfo,
   Parsed3MFArchive,
   SimplificationOptions,
   SimplifiedMeshResult,
+  CutPlaneOptions,
+  CutMeshResult,
+  CutPartMesh,
 } from '../core/types';
 
 export interface LightweightMeshInfo {
@@ -42,10 +48,28 @@ export type WorkerRequestMessage =
       type: 'SIMPLIFY';
       jobId: number;
       options: SimplificationOptions;
+      target?: 'original' | 'cut' | 'auto';
+    }
+  | {
+      type: 'SIMPLIFY_CUT';
+      jobId: number;
+      options: SimplificationOptions;
+    }
+  | {
+      type: 'CUT';
+      jobId: number;
+      options: CutPlaneOptions;
+      useSimplifiedIfAvailable?: boolean;
     }
   | {
       type: 'EXPORT';
       jobId: number;
+    }
+  | {
+      type: 'EXPORT_CUT';
+      jobId: number;
+      partType: 'all' | 'partA' | 'partB' | 'dowel';
+      assembleInPlace?: boolean;
     };
 
 export type WorkerResponseMessage =
@@ -70,12 +94,19 @@ export type WorkerResponseMessage =
       type: 'SIMPLIFIED';
       jobId: number;
       results: SimplifiedMeshResult[];
+      cutResult?: CutMeshResult;
       elapsedMs: number;
+    }
+  | {
+      type: 'CUT_DONE';
+      jobId: number;
+      result: CutMeshResult;
     }
   | {
       type: 'EXPORTED';
       jobId: number;
       bytes: Uint8Array;
+      suggestedFileName?: string;
     }
   | {
       type: 'ERROR';
@@ -85,6 +116,7 @@ export type WorkerResponseMessage =
 
 let currentArchive: Parsed3MFArchive | null = null;
 let latestResults: SimplifiedMeshResult[] = [];
+let latestCutResult: CutMeshResult | null = null;
 
 function runSimplification(jobId: number, options: SimplificationOptions): void {
   if (!currentArchive) return;
@@ -157,6 +189,221 @@ function runSimplification(jobId: number, options: SimplificationOptions): void 
   self.postMessage(doneMsg);
 }
 
+function runCutSimplification(jobId: number, options: SimplificationOptions): void {
+  if (!latestCutResult) {
+    throw new Error('No cut parts available to simplify. Please perform a cut first.');
+  }
+
+  const t0 = performance.now();
+
+  // Preserve original pre-simplified cut parts
+  if (!latestCutResult.originalPartA) {
+    latestCutResult.originalPartA = {
+      ...latestCutResult.partA,
+      vertices: new Float32Array(latestCutResult.partA.vertices),
+      triangles: new Uint32Array(latestCutResult.partA.triangles),
+      paintStates: new Uint8Array(latestCutResult.partA.paintStates),
+      triangleCount: latestCutResult.partA.triangleCount,
+    };
+  }
+  if (!latestCutResult.originalPartB) {
+    latestCutResult.originalPartB = {
+      ...latestCutResult.partB,
+      vertices: new Float32Array(latestCutResult.partB.vertices),
+      triangles: new Uint32Array(latestCutResult.partB.triangles),
+      paintStates: new Uint8Array(latestCutResult.partB.paintStates),
+      triangleCount: latestCutResult.partB.triangleCount,
+    };
+  }
+
+  const srcA = latestCutResult.originalPartA;
+  const srcB = latestCutResult.originalPartB;
+
+  // Decimate Part A (0% -> 50% stage progress)
+  const decA = simplifyPaintedMesh(
+    srcA.vertices,
+    srcA.triangles,
+    srcA.paintStates,
+    options,
+    (meshPct) => {
+      const overallPct = Math.round(meshPct * 0.5);
+      const msg: WorkerResponseMessage = {
+        type: 'STAGE',
+        jobId,
+        stage: 'Simplifying Cut Part A (Upper)...',
+        percent: overallPct,
+      };
+      self.postMessage(msg);
+    }
+  );
+
+  latestCutResult.partA = {
+    ...srcA,
+    vertices: decA.vertices,
+    triangles: decA.triangles,
+    paintStates: decA.paintStates,
+    triangleCount: decA.triangles.length / 3,
+    originalTriangleCount: srcA.triangleCount,
+  };
+
+  // Decimate Part B (50% -> 100% stage progress)
+  const decB = simplifyPaintedMesh(
+    srcB.vertices,
+    srcB.triangles,
+    srcB.paintStates,
+    options,
+    (meshPct) => {
+      const overallPct = Math.round(50 + meshPct * 0.5);
+      const msg: WorkerResponseMessage = {
+        type: 'STAGE',
+        jobId,
+        stage: 'Simplifying Cut Part B (Lower)...',
+        percent: overallPct,
+      };
+      self.postMessage(msg);
+    }
+  );
+
+  latestCutResult.partB = {
+    ...srcB,
+    vertices: decB.vertices,
+    triangles: decB.triangles,
+    paintStates: decB.paintStates,
+    triangleCount: decB.triangles.length / 3,
+    originalTriangleCount: srcB.triangleCount,
+  };
+
+  latestCutResult.isSimplified = true;
+  const elapsedMs = Math.round(performance.now() - t0);
+
+  const results: SimplifiedMeshResult[] = [
+    {
+      modelPath: '3D/PartA.model',
+      objectId: '1',
+      vertices: decA.vertices,
+      triangles: decA.triangles,
+      paintStates: decA.paintStates,
+      originalRawTriangles: srcA.triangleCount,
+      originalExpandedTriangles: srcA.triangleCount,
+      simplifiedTriangles: decA.triangles.length / 3,
+    },
+    {
+      modelPath: '3D/PartB.model',
+      objectId: '2',
+      vertices: decB.vertices,
+      triangles: decB.triangles,
+      paintStates: decB.paintStates,
+      originalRawTriangles: srcB.triangleCount,
+      originalExpandedTriangles: srcB.triangleCount,
+      simplifiedTriangles: decB.triangles.length / 3,
+    },
+  ];
+
+  const doneMsg: WorkerResponseMessage = {
+    type: 'SIMPLIFIED',
+    jobId,
+    results,
+    cutResult: latestCutResult,
+    elapsedMs,
+  };
+  self.postMessage(doneMsg);
+}
+
+function runCut(
+  jobId: number,
+  options: CutPlaneOptions,
+  useSimplifiedIfAvailable = false
+): void {
+  if (!currentArchive || currentArchive.meshes.length === 0) {
+    throw new Error('No 3MF model loaded to cut.');
+  }
+
+  const stageMsg: WorkerResponseMessage = {
+    type: 'STAGE',
+    jobId,
+    stage: 'Slicing Painted Mesh & Generating Alignment Dowels...',
+    percent: 30,
+  };
+  self.postMessage(stageMsg);
+
+  let inVerts: Float32Array;
+  let inTris: Uint32Array;
+  let inPaints: Uint8Array;
+
+  if (useSimplifiedIfAvailable && latestResults.length > 0) {
+    if (latestResults.length === 1) {
+      inVerts = latestResults[0].vertices;
+      inTris = latestResults[0].triangles;
+      inPaints = latestResults[0].paintStates;
+    } else {
+      let totalV = 0;
+      let totalT = 0;
+      for (const res of latestResults) {
+        totalV += res.vertices.length;
+        totalT += res.triangles.length;
+      }
+      inVerts = new Float32Array(totalV);
+      inTris = new Uint32Array(totalT);
+      inPaints = new Uint8Array(totalT / 3);
+
+      let vOffset = 0;
+      let tOffset = 0;
+      let pOffset = 0;
+      for (const res of latestResults) {
+        const vBase = vOffset / 3;
+        inVerts.set(res.vertices, vOffset);
+        for (let i = 0; i < res.triangles.length; i++) {
+          inTris[tOffset + i] = res.triangles[i] + vBase;
+        }
+        inPaints.set(res.paintStates, pOffset);
+        vOffset += res.vertices.length;
+        tOffset += res.triangles.length;
+        pOffset += res.paintStates.length;
+      }
+    }
+  } else if (currentArchive.meshes.length === 1) {
+    const mesh = currentArchive.meshes[0];
+    inVerts = mesh.expandedVertices;
+    inTris = mesh.expandedTriangles;
+    inPaints = mesh.expandedPaintStates;
+  } else {
+    let totalV = 0;
+    let totalT = 0;
+    for (const m of currentArchive.meshes) {
+      totalV += m.expandedVertices.length;
+      totalT += m.expandedTriangles.length;
+    }
+    inVerts = new Float32Array(totalV);
+    inTris = new Uint32Array(totalT);
+    inPaints = new Uint8Array(totalT / 3);
+
+    let vOffset = 0;
+    let tOffset = 0;
+    let pOffset = 0;
+    for (const m of currentArchive.meshes) {
+      const vBase = vOffset / 3;
+      inVerts.set(m.expandedVertices, vOffset);
+      for (let i = 0; i < m.expandedTriangles.length; i++) {
+        inTris[tOffset + i] = m.expandedTriangles[i] + vBase;
+      }
+      inPaints.set(m.expandedPaintStates, pOffset);
+      vOffset += m.expandedVertices.length;
+      tOffset += m.expandedTriangles.length;
+      pOffset += m.expandedPaintStates.length;
+    }
+  }
+
+  const cutResult = cutPaintedMesh(inVerts, inTris, inPaints, options);
+  latestCutResult = cutResult;
+
+  const doneMsg: WorkerResponseMessage = {
+    type: 'CUT_DONE',
+    jobId,
+    result: cutResult,
+  };
+  self.postMessage(doneMsg);
+}
+
 self.onmessage = (event: MessageEvent<WorkerRequestMessage>) => {
   const msg = event.data;
 
@@ -209,8 +456,16 @@ self.onmessage = (event: MessageEvent<WorkerRequestMessage>) => {
       if (msg.type === 'LOAD_AND_SIMPLIFY') {
         runSimplification(msg.jobId, msg.options);
       }
+    } else if (msg.type === 'SIMPLIFY_CUT') {
+      runCutSimplification(msg.jobId, msg.options);
     } else if (msg.type === 'SIMPLIFY') {
-      runSimplification(msg.jobId, msg.options);
+      if (msg.target === 'cut') {
+        runCutSimplification(msg.jobId, msg.options);
+      } else {
+        runSimplification(msg.jobId, msg.options);
+      }
+    } else if (msg.type === 'CUT') {
+      runCut(msg.jobId, msg.options, msg.useSimplifiedIfAvailable);
     } else if (msg.type === 'EXPORT') {
       if (!currentArchive || latestResults.length === 0) {
         throw new Error('No simplified model ready to export.');
@@ -229,7 +484,46 @@ self.onmessage = (event: MessageEvent<WorkerRequestMessage>) => {
         jobId: msg.jobId,
         bytes: outBytes,
       };
-      // Transfer the output ArrayBuffer zero-copy to the main thread!
+      self.postMessage(expMsg, { transfer: [outBytes.buffer] });
+    } else if (msg.type === 'EXPORT_CUT') {
+      if (!currentArchive || !latestCutResult) {
+        throw new Error('No cut parts ready to export.');
+      }
+      const stageMsg: WorkerResponseMessage = {
+        type: 'STAGE',
+        jobId: msg.jobId,
+        stage: 'Packaging Cut Parts .3MF Archive...',
+        percent: 50,
+      };
+      self.postMessage(stageMsg);
+
+      let outBytes: Uint8Array;
+      let suggestedFileName = 'model_cut.3mf';
+
+      if (msg.partType === 'all') {
+        outBytes = exportCut3MF(currentArchive, latestCutResult, {
+          assembleInPlace: msg.assembleInPlace,
+        });
+        suggestedFileName = `${currentArchive.fileName.replace(/\.3mf$/i, '')}_cut_${msg.assembleInPlace ? 'assembled' : 'plate'}.3mf`;
+      } else if (msg.partType === 'partA') {
+        outBytes = exportCutPart3MF(currentArchive, latestCutResult.partA);
+        suggestedFileName = `${currentArchive.fileName.replace(/\.3mf$/i, '')}_PartA_Upper.3mf`;
+      } else if (msg.partType === 'partB') {
+        outBytes = exportCutPart3MF(currentArchive, latestCutResult.partB);
+        suggestedFileName = `${currentArchive.fileName.replace(/\.3mf$/i, '')}_PartB_Lower.3mf`;
+      } else if (msg.partType === 'dowel' && latestCutResult.dowelPin) {
+        outBytes = exportCutPart3MF(currentArchive, latestCutResult.dowelPin);
+        suggestedFileName = `${currentArchive.fileName.replace(/\.3mf$/i, '')}_DowelPin.3mf`;
+      } else {
+        throw new Error('Requested part is not available.');
+      }
+
+      const expMsg: WorkerResponseMessage = {
+        type: 'EXPORTED',
+        jobId: msg.jobId,
+        bytes: outBytes,
+        suggestedFileName,
+      };
       self.postMessage(expMsg, { transfer: [outBytes.buffer] });
     }
   } catch (err) {
