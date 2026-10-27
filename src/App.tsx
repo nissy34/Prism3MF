@@ -858,18 +858,6 @@ export function App() {
                       <span className="text-[10px] text-zinc-500">In-Browser Worker</span>
                     </div>
                   </div>
-
-                  <div className="pt-1">
-                    <a
-                      href="https://github.com/nissy34/Prism3MF"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 text-xs text-zinc-400 hover:text-emerald-400 transition-colors"
-                    >
-                      <Github className="w-3.5 h-3.5" />
-                      <span>Open Source on GitHub (nissy34/Prism3MF)</span>
-                    </a>
-                  </div>
                 </div>
               </div>
             )}
@@ -888,17 +876,6 @@ export function App() {
               <span className="hidden sm:inline">
                 Build Plate: <strong className="text-zinc-300">256 × 256 mm</strong>
               </span>
-              <span className="hidden sm:inline text-zinc-600">•</span>
-              <a
-                href="https://github.com/nissy34/Prism3MF"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="hidden sm:inline-flex items-center gap-1 text-zinc-400 hover:text-zinc-200 transition-colors"
-                title="GitHub Repository"
-              >
-                <Github className="w-3 h-3" />
-                <span>GitHub</span>
-              </a>
             </div>
             <div className="font-mono text-zinc-300 shrink-0 pl-2 text-right">
               {archive ? (
