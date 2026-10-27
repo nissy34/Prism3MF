@@ -332,15 +332,35 @@ export function App() {
       handleRevertCutSimplification();
     } else {
       setSimplifiedMeshes([]);
-      setDisplayMode('original');
       setAppliedOptions(null);
+      if (cutResult !== null) {
+        setDisplayMode('result');
+      } else {
+        setDisplayMode('original');
+      }
     }
   };
 
   const handleUndoCut = () => {
+    const wasCutSimplified = Boolean(cutResult?.isSimplified);
     setCutResult(null);
     setSimplificationTarget('uncut');
-    if (!isSimplified) {
+
+    if (simplifiedMeshes.length > 0) {
+      // If uncut model was already simplified, stay on result view to show simplified model!
+      setDisplayMode('result');
+    } else if (wasCutSimplified) {
+      // If simplification was performed on cut parts, seamlessly preserve simplification on the uncut model
+      setDisplayMode('result');
+      triggerSimplificationWithOptions({
+        targetRatio,
+        lockColorBoundaries,
+        colorBoundaryWeight,
+        resolveSubdivisions,
+        maxGeometricError,
+        lockOpenBorders,
+      });
+    } else {
       setDisplayMode('original');
     }
   };
