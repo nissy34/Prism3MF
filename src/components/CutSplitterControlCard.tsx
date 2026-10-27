@@ -782,7 +782,7 @@ export const CutSplitterControlCard: React.FC<CutSplitterControlCardProps> = ({
             <div className="flex items-center justify-between text-xs">
               <span className="font-semibold text-emerald-400 flex items-center gap-1.5">
                 <Sparkles className="w-4 h-4 text-emerald-400" />
-                Simplify Cut Parts (QEM)
+                Simplify Cut Parts
               </span>
               {cutResult.isSimplified && (
                 <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">

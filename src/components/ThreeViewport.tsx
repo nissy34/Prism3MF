@@ -27,6 +27,7 @@ export interface ThreeViewportProps {
   onCutPlaneNormalChange?: (norm: [number, number, number]) => void;
   cutResult?: CutMeshResult | null;
   explodedOffset?: number;
+  isMobileDeckExpanded?: boolean;
 }
 
 /**
@@ -404,6 +405,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   onCutPlaneNormalChange,
   cutResult,
   explodedOffset = 0,
+  isMobileDeckExpanded = true,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -413,6 +415,8 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   const cutPlaneHelperRef = useRef<THREE.Group | null>(null);
   const lastMeshKeyRef = useRef<string>('');
   const displayModeRef = useRef<ViewportDisplayMode>(displayMode);
+  const isMobileDeckExpandedRef = useRef<boolean>(isMobileDeckExpanded);
+  isMobileDeckExpandedRef.current = isMobileDeckExpanded;
   displayModeRef.current = displayMode;
 
   const origAnchorRef = useRef<THREE.Vector3>(new THREE.Vector3());
@@ -859,6 +863,17 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       const width = container.clientWidth;
       const height = container.clientHeight;
       if (width === 0 || height === 0) return;
+
+      const isMobile = width < 768 || width / height < 1.0;
+      if (isMobile) {
+        const deckHeight = isMobileDeckExpandedRef.current ? 280 : 45;
+        const topBarHeight = 90;
+        const yOffset = (deckHeight - topBarHeight) / 2;
+        camera.setViewOffset(width, height, 0, yOffset, width, height);
+      } else {
+        camera.clearViewOffset();
+      }
+
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
       renderer.setSize(width, height);
@@ -1163,121 +1178,93 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     explodedPartARefs.current = [];
     explodedPartBRefs.current = [];
 
-    // Mode: Cut Result Display (handles both Cut Tab and Cut Simplification)
-    const isShowingCutResult = cutResult && (mode === 'cut' || simplificationTarget === 'cut');
-    if (isShowingCutResult) {
+    // 1. Helper to build Cut Model Sub-Group (Part A + Part B separated along Z, dowels)
+    const buildCutSubGroup = (useSimplified: boolean, xOffset: number): THREE.Group => {
+      const cutGroup = new THREE.Group();
+      if (!cutResult) return cutGroup;
+
       const isCutSimplified = Boolean(
         cutResult.isSimplified && cutResult.originalPartA && cutResult.originalPartB
       );
+      const partA =
+        useSimplified || !isCutSimplified ? cutResult.partA : cutResult.originalPartA!;
+      const partB =
+        useSimplified || !isCutSimplified ? cutResult.partB : cutResult.originalPartB!;
 
-      const buildCutSubGroup = (useSimplified: boolean, xOffset: number): THREE.Group => {
-        const cutGroup = new THREE.Group();
+      const partAGroup = new THREE.Group();
+      const partBGroup = new THREE.Group();
+      partAGroup.position.z = explodedOffset;
+      partBGroup.position.z = -explodedOffset;
+      explodedPartARefs.current.push(partAGroup);
+      explodedPartBRefs.current.push(partBGroup);
 
-        const partA =
-          useSimplified || !isCutSimplified ? cutResult.partA : cutResult.originalPartA!;
-        const partB =
-          useSimplified || !isCutSimplified ? cutResult.partB : cutResult.originalPartB!;
+      const createPartMeshInGroup = (
+        targetGroup: THREE.Group,
+        partVerts: Float32Array,
+        partTris: Uint32Array,
+        partPaints: Uint8Array,
+        defaultExtruder = 1
+      ) => {
+        const geom = createPaintedBufferGeometry(
+          partVerts,
+          partTris,
+          partPaints,
+          defaultExtruder,
+          filaments
+        );
+        const mat = new THREE.MeshStandardMaterial({
+          vertexColors: true,
+          roughness: 0.55,
+          metalness: 0.08,
+          polygonOffset: showWireframe,
+          polygonOffsetFactor: 1,
+          polygonOffsetUnits: 1,
+        });
+        const meshObj = new THREE.Mesh(geom, mat);
+        targetGroup.add(meshObj);
 
-        const partAGroup = new THREE.Group();
-        const partBGroup = new THREE.Group();
-        partAGroup.position.z = explodedOffset;
-        partBGroup.position.z = -explodedOffset;
-        explodedPartARefs.current.push(partAGroup);
-        explodedPartBRefs.current.push(partBGroup);
-
-        const createPartMeshInGroup = (
-          targetGroup: THREE.Group,
-          partVerts: Float32Array,
-          partTris: Uint32Array,
-          partPaints: Uint8Array,
-          defaultExtruder = 1
-        ) => {
-          const geom = createPaintedBufferGeometry(
-            partVerts,
-            partTris,
-            partPaints,
-            defaultExtruder,
-            filaments
-          );
-          const mat = new THREE.MeshStandardMaterial({
-            vertexColors: true,
-            roughness: 0.55,
-            metalness: 0.08,
-            polygonOffset: showWireframe,
-            polygonOffsetFactor: 1,
-            polygonOffsetUnits: 1,
+        if (showWireframe) {
+          const wireMat = new THREE.MeshBasicMaterial({
+            color: '#18181b',
+            wireframe: true,
+            transparent: true,
+            opacity: 0.35,
           });
-          const meshObj = new THREE.Mesh(geom, mat);
-          targetGroup.add(meshObj);
-
-          if (showWireframe) {
-            const wireMat = new THREE.MeshBasicMaterial({
-              color: '#18181b',
-              wireframe: true,
-              transparent: true,
-              opacity: 0.35,
-            });
-            const wireMesh = new THREE.Mesh(geom, wireMat);
-            targetGroup.add(wireMesh);
-          }
-        };
-
-        // Upper Part A
-        createPartMeshInGroup(partAGroup, partA.vertices, partA.triangles, partA.paintStates);
-        cutGroup.add(partAGroup);
-
-        // Lower Part B
-        createPartMeshInGroup(partBGroup, partB.vertices, partB.triangles, partB.paintStates);
-        cutGroup.add(partBGroup);
-
-        // Dowel Pin if present
-        if (cutResult.dowelPin) {
-          createPartMeshInGroup(
-            cutGroup,
-            cutResult.dowelPin.vertices,
-            cutResult.dowelPin.triangles,
-            cutResult.dowelPin.paintStates,
-            2 // Contrast filament for dowel pin
-          );
+          const wireMesh = new THREE.Mesh(geom, wireMat);
+          targetGroup.add(wireMesh);
         }
-
-        // Center cutGroup on build plate
-        const box = new THREE.Box3().setFromObject(cutGroup);
-        if (!box.isEmpty()) {
-          const center = new THREE.Vector3();
-          box.getCenter(center);
-          cutGroup.position.set(-center.x + xOffset, -center.y, -box.min.z);
-        }
-        return cutGroup;
       };
 
-      if (displayMode === 'split' && isCutSimplified) {
-        isSplitAnchoredRef.current = true;
-        const tempBox = new THREE.Box3();
-        const testSub = buildCutSubGroup(false, 0);
-        tempBox.setFromObject(testSub);
-        const modelWidth = tempBox.isEmpty() ? 50 : tempBox.max.x - tempBox.min.x;
-        const modelHeight = tempBox.isEmpty() ? 40 : tempBox.max.z;
-        const spacing = Math.max(modelWidth * 0.45, 20);
-        const shiftX = (modelWidth + spacing) / 2;
+      // Upper Part A
+      createPartMeshInGroup(partAGroup, partA.vertices, partA.triangles, partA.paintStates);
+      cutGroup.add(partAGroup);
 
-        const leftGroup = buildCutSubGroup(false, -shiftX);
-        const rightGroup = buildCutSubGroup(true, shiftX);
-        group.add(leftGroup);
-        group.add(rightGroup);
+      // Lower Part B
+      createPartMeshInGroup(partBGroup, partB.vertices, partB.triangles, partB.paintStates);
+      cutGroup.add(partBGroup);
 
-        origAnchorRef.current.set(-shiftX, 0, modelHeight + 12);
-        simpAnchorRef.current.set(shiftX, 0, modelHeight + 12);
-      } else {
-        isSplitAnchoredRef.current = false;
-        const useSimp = displayMode === 'result' || displayMode === 'simplified' || !isCutSimplified;
-        const singleCutGroup = buildCutSubGroup(useSimp, 0);
-        group.add(singleCutGroup);
+      // Dowel Pin if present
+      if (cutResult.dowelPin) {
+        createPartMeshInGroup(
+          cutGroup,
+          cutResult.dowelPin.vertices,
+          cutResult.dowelPin.triangles,
+          cutResult.dowelPin.paintStates,
+          2 // Contrast filament for dowel pin
+        );
       }
-      return;
-    }
 
-    // Mode: Simplify / Standard Display
+      // Center cutGroup on build plate
+      const box = new THREE.Box3().setFromObject(cutGroup);
+      if (!box.isEmpty()) {
+        const center = new THREE.Vector3();
+        box.getCenter(center);
+        cutGroup.position.set(-center.x + xOffset, -center.y, -box.min.z);
+      }
+      return cutGroup;
+    };
+
+    // 2. Helper to build Intact Sub-Group (Uncut raw mesh, or simplified uncut mesh)
     const buildSubGroup = (useSimplified: boolean, xOffset: number): THREE.Group => {
       const subGroup = new THREE.Group();
 
@@ -1343,6 +1330,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       return subGroup;
     };
 
+    // Calculate dimensions for split comparison offset
     const tempBox = new THREE.Box3();
     for (const m of meshes) {
       const verts = m.expandedVertices;
@@ -1354,19 +1342,29 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     tempBox.getSize(size);
     const splitOffset = Math.max(size.x * 0.72, 32);
 
-    if (displayMode === 'split') {
-      const origGroup = buildSubGroup(false, -splitOffset);
-      const simpGroup = buildSubGroup(true, splitOffset);
-      group.add(origGroup);
-      group.add(simpGroup);
+    const hasCutResult = Boolean(cutResult);
 
-      const origB = new THREE.Box3().setFromObject(origGroup);
-      const simpB = new THREE.Box3().setFromObject(simpGroup);
-      const maxZ = Math.max(origB.max.z, simpB.max.z, 20);
+    if (displayMode === 'original') {
+      // 1. ALWAYS ORIGINAL: uncut and unsimplified, regardless of tool mode or past operations
+      isSplitAnchoredRef.current = false;
+      group.add(buildSubGroup(false, 0));
+    } else if (displayMode === 'split') {
+      // 2. SPLIT VIEW: Left is intact untouched original, Right is modified result (cut or simplified)
+      isSplitAnchoredRef.current = true;
+      const leftGroup = buildSubGroup(false, -splitOffset);
+      const rightGroup = hasCutResult
+        ? buildCutSubGroup(true, splitOffset)
+        : buildSubGroup(true, splitOffset);
+
+      group.add(leftGroup);
+      group.add(rightGroup);
+
+      const origB = new THREE.Box3().setFromObject(leftGroup);
+      const resB = new THREE.Box3().setFromObject(rightGroup);
+      const maxZ = Math.max(origB.max.z, resB.max.z, 20);
 
       origAnchorRef.current.set(-splitOffset, 0, maxZ + 8);
       simpAnchorRef.current.set(splitOffset, 0, maxZ + 8);
-      isSplitAnchoredRef.current = true;
 
       const ringRadius = Math.max(size.x * 0.45, 18);
       const ringGeom = new THREE.RingGeometry(ringRadius * 0.9, ringRadius, 48);
@@ -1391,32 +1389,60 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       simpRing.position.set(splitOffset, 0, 0.05);
       group.add(simpRing);
     } else {
+      // 3. RESULT VIEW: Cut result (with simplification if applied) or simplified model
       isSplitAnchoredRef.current = false;
-      if (displayMode === 'original') {
-        group.add(buildSubGroup(false, 0));
+      if (hasCutResult) {
+        group.add(buildCutSubGroup(true, 0));
       } else {
         group.add(buildSubGroup(true, 0));
       }
     }
 
-    // Auto-frame camera on new model
+    // Auto-frame camera on new model (fits bounding sphere comfortably and centers in visible viewport on mobile)
     const meshKey = `${meshes.map((m) => m.name).join('|')}_${meshes[0]?.rawTriangleCount}`;
     if (meshKey !== lastMeshKeyRef.current) {
       lastMeshKeyRef.current = meshKey;
       const fullBox = new THREE.Box3().setFromObject(group);
       if (!fullBox.isEmpty()) {
-        const bSize = new THREE.Vector3();
-        const bCenter = new THREE.Vector3();
-        fullBox.getSize(bSize);
-        fullBox.getCenter(bCenter);
+        const sphere = new THREE.Sphere();
+        fullBox.getBoundingSphere(sphere);
+        const radius = Math.max(sphere.radius, 15);
+        const center = sphere.center;
 
-        const maxDim = Math.max(bSize.x, bSize.y, bSize.z, 20);
-        controls.target.copy(bCenter);
-        camera.position.set(
-          bCenter.x - maxDim * 1.15,
-          bCenter.y - maxDim * 1.35,
-          bCenter.z + maxDim * 0.9
-        );
+        const container = containerRef.current;
+        const w = container?.clientWidth || window.innerWidth;
+        const h = container?.clientHeight || window.innerHeight;
+        const isMobile = w < 768 || w / h < 1.0;
+
+        // On mobile, offset the camera view so the model is centered in the visible area
+        // between the top quick-angle bar and the bottom workspace controls deck
+        if (isMobile) {
+          const deckHeight = isMobileDeckExpanded ? 280 : 45;
+          const topBarHeight = 90;
+          const yOffset = (deckHeight - topBarHeight) / 2;
+          camera.setViewOffset(w, h, 0, yOffset, w, h);
+        } else {
+          camera.clearViewOffset();
+        }
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+
+        // Calculate CAD distance ensuring the model is not giant and fits visible screen bounds
+        const vFov = (camera.fov * Math.PI) / 180;
+        const deckHeight = isMobile && isMobileDeckExpanded ? 280 : isMobile ? 45 : 0;
+        const topBarHeight = isMobile ? 90 : 50;
+        const availH = isMobile ? Math.max(100, h - deckHeight - topBarHeight) : h - 60;
+        const availW = isMobile ? Math.max(100, w - 32) : w - 40;
+
+        const dVert = radius / (Math.tan(vFov / 2) * (availH / h));
+        const dHoriz = radius / (Math.tan(vFov / 2) * (availW / h));
+        const marginFactor = isMobile ? 1.35 : 1.25;
+        const targetDistance = Math.max(dVert, dHoriz) * marginFactor;
+
+        // Standard isometric CAD view direction
+        const dir = new THREE.Vector3(-1.1, -1.3, 0.85).normalize();
+        controls.target.copy(center);
+        camera.position.copy(center).addScaledVector(dir, targetDistance);
         controls.update();
       }
     }
@@ -1430,7 +1456,30 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     mode,
     simplificationTarget,
     cutResult,
+    isMobileDeckExpanded,
   ]);
+
+  // Dynamic view offset update when mobile deck expands/collapses
+  useEffect(() => {
+    const container = containerRef.current;
+    const camera = cameraRef.current;
+    if (!container || !camera) return;
+    const width = container.clientWidth;
+    const height = container.clientHeight;
+    if (width === 0 || height === 0) return;
+
+    const isMobile = width < 768 || width / height < 1.0;
+    if (isMobile) {
+      const deckHeight = isMobileDeckExpanded ? 280 : 45;
+      const topBarHeight = 90;
+      const yOffset = (deckHeight - topBarHeight) / 2;
+      camera.setViewOffset(width, height, 0, yOffset, width, height);
+    } else {
+      camera.clearViewOffset();
+    }
+    camera.aspect = width / height;
+    camera.updateProjectionMatrix();
+  }, [isMobileDeckExpanded]);
 
   // Fast GPU transform update for exploded view separation (zero geometry re-allocation)
   useEffect(() => {
@@ -1444,9 +1493,14 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
   const totalOrigTris = meshes.reduce((acc, m) => acc + m.expandedTriangles.length / 3, 0);
   const totalSimpTris = simplifiedMeshes.reduce((acc, m) => acc + m.simplifiedTriangles, 0);
+  const totalCutTris = cutResult
+    ? Math.round((cutResult.partA.triangles.length + cutResult.partB.triangles.length) / 3) +
+      (cutResult.dowelPin ? Math.round(cutResult.dowelPin.triangles.length / 3) : 0)
+    : 0;
+  const totalResultTris = cutResult ? totalCutTris : totalSimpTris;
   const reductionPct =
-    totalOrigTris > 0 && totalSimpTris > 0
-      ? Math.max(0, Math.round((1 - totalSimpTris / totalOrigTris) * 100))
+    totalOrigTris > 0 && totalResultTris > 0 && (simplifiedMeshes.length > 0 || cutResult?.isSimplified)
+      ? Math.max(0, Math.round((1 - totalResultTris / totalOrigTris) * 100))
       : 0;
 
   return (
@@ -1468,9 +1522,17 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         className="pointer-events-none z-20 px-2.5 py-1 rounded-full bg-zinc-950/90 border border-emerald-500/60 shadow-2xl shadow-emerald-500/20 text-[11px] font-semibold text-emerald-300 flex items-center gap-1.5 whitespace-nowrap backdrop-blur-md"
       >
         <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0 shadow-[0_0_8px_rgba(52,211,153,0.9)]" />
-        <span>Simplified</span>
+        <span>{cutResult ? 'Cut Result' : 'Simplified'}</span>
         <span className="font-mono text-emerald-400 font-bold">
-          ({totalSimpTris.toLocaleString()} tris • -{reductionPct}%)
+          {cutResult ? (
+            cutResult.isSimplified && reductionPct > 0 ? (
+              `(${totalResultTris.toLocaleString()} tris • -${reductionPct}%)`
+            ) : (
+              `(${totalResultTris.toLocaleString()} tris • Upper & Lower)`
+            )
+          ) : (
+            `(${totalSimpTris.toLocaleString()} tris • -${reductionPct}%)`
+          )}
         </span>
       </div>
 

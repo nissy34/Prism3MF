@@ -702,7 +702,7 @@ export function App() {
                 }`}
               >
                 <Layers className="w-3.5 h-3.5" />
-                <span>Simplify (QEM)</span>
+                <span>Simplify</span>
               </button>
             </div>
 
@@ -784,11 +784,6 @@ export function App() {
                 {(() => {
                   const hasResult = isSimplified || cutResult !== null;
                   const isResultActive = displayMode === 'result' || displayMode === 'simplified';
-                  const resultBadge = isSimplified
-                    ? `(-${reductionPct}%)`
-                    : cutResult !== null
-                      ? '(Cut)'
-                      : '';
 
                   return (
                     <>
@@ -810,10 +805,7 @@ export function App() {
                         }
                       >
                         <Eye className="w-3.5 h-3.5 shrink-0" />
-                        <span className="hidden sm:inline">
-                          Result {resultBadge}
-                        </span>
-                        <span className="sm:hidden">Result</span>
+                        <span>Result</span>
                       </button>
 
                       <button
@@ -824,7 +816,7 @@ export function App() {
                             ? 'bg-emerald-500 text-zinc-950 font-semibold shadow-xs'
                             : 'text-zinc-300 hover:bg-zinc-800'
                         }`}
-                        title="View original unsimplified model"
+                        title="View original untouched model (uncut and unsimplified)"
                       >
                         <Layers className="w-3.5 h-3.5 shrink-0" />
                         <span className="hidden sm:inline">Original ({baselineTris.toLocaleString()} tris)</span>
@@ -845,7 +837,7 @@ export function App() {
                         title={
                           !hasResult
                             ? 'Execute a tool first to compare before and after'
-                            : 'Compare before and after'
+                            : 'Compare original untouched model side-by-side with result'
                         }
                       >
                         <Columns className="w-3.5 h-3.5 shrink-0" />
@@ -1163,6 +1155,7 @@ export function App() {
               onCutPlaneNormalChange={setCutPlaneNormal}
               cutResult={cutResult}
               explodedOffset={explodedOffset}
+              isMobileDeckExpanded={isMobileDeckExpanded}
             />
 
             {/* Multi-Tool Suite Landing Hero */}

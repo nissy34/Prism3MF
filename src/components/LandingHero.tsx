@@ -119,15 +119,14 @@ export function LandingHero({ onSelectFile, onLoadDemo }: LandingHeroProps) {
                   <Layers className="w-5 h-5" />
                 </div>
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-300 border border-zinc-700">
-                  Fast QEM
+                  Smart Decimation
                 </span>
               </div>
               <h3 className="text-sm sm:text-base font-bold text-zinc-100 flex items-center gap-1.5">
                 Color-Preserving Simplifier
               </h3>
               <p className="text-xs text-zinc-400 leading-relaxed">
-                Decimate dense meshes up to 90% without losing multi-color details.
-                Enforces strict edge preservation on painted filament boundaries, decals, and brush strokes.
+                Decimate dense meshes up to 90% without losing multi-color details using quadric error metric (QEM) edge decimation with strict paint boundary preservation.
               </p>
             </div>
 
