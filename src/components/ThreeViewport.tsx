@@ -9,7 +9,7 @@ import {
 } from '../core/types';
 import type { LightweightMeshInfo } from '../workers/simplifier.worker';
 
-export type ViewportDisplayMode = 'simplified' | 'original' | 'split';
+export type ViewportDisplayMode = 'result' | 'simplified' | 'original' | 'split';
 
 export interface ThreeViewportProps {
   meshes: LightweightMeshInfo[];
@@ -1261,7 +1261,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         simpAnchorRef.current.set(shiftX, 0, modelHeight + 12);
       } else {
         isSplitAnchoredRef.current = false;
-        const useSimp = displayMode === 'simplified' || !isCutSimplified;
+        const useSimp = displayMode === 'result' || displayMode === 'simplified' || !isCutSimplified;
         const singleCutGroup = buildCutSubGroup(useSimp, 0);
         group.add(singleCutGroup);
       }

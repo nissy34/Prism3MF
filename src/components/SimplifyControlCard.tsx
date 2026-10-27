@@ -22,6 +22,18 @@ export interface SimplifyControlCardProps {
   hasCutResult?: boolean;
   simplificationTarget?: 'cut' | 'uncut';
   onSimplificationTargetChange?: (target: 'cut' | 'uncut') => void;
+  // Inline QEM fine-tuning options
+  lockColorBoundaries?: boolean;
+  onLockColorBoundariesChange?: (v: boolean) => void;
+  colorBoundaryWeight?: number;
+  onColorBoundaryWeightChange?: (v: number) => void;
+  resolveSubdivisions?: boolean;
+  onResolveSubdivisionsChange?: (v: boolean) => void;
+  maxGeometricError?: number;
+  onMaxGeometricErrorChange?: (v: number) => void;
+  lockOpenBorders?: boolean;
+  onLockOpenBordersChange?: (v: boolean) => void;
+  onResetDefaults?: () => void;
 }
 
 export function SimplifyControlCard({
@@ -45,6 +57,17 @@ export function SimplifyControlCard({
   hasCutResult = false,
   simplificationTarget = 'uncut',
   onSimplificationTargetChange,
+  lockColorBoundaries = true,
+  onLockColorBoundariesChange,
+  colorBoundaryWeight = 500,
+  onColorBoundaryWeightChange,
+  resolveSubdivisions = true,
+  onResolveSubdivisionsChange,
+  maxGeometricError = 0.02,
+  onMaxGeometricErrorChange,
+  lockOpenBorders = true,
+  onLockOpenBordersChange,
+  onResetDefaults,
 }: SimplifyControlCardProps) {
   const reductionPct = Math.round((1 - targetRatio) * 100);
 
@@ -428,6 +451,134 @@ export function SimplifyControlCard({
           </div>
         )}
       </div>
+
+      {/* Inline Extra QEM Algorithm Options (Folds out directly inside card) */}
+      {isQemOptionsOpen && (
+        <div className="pt-3 border-t border-zinc-800/80 space-y-2.5 animate-in fade-in slide-in-from-top-1 duration-150">
+          <div className="flex items-center justify-between text-xs pb-0.5">
+            <span className="font-semibold text-zinc-200 uppercase tracking-wider text-[10px] flex items-center gap-1.5">
+              <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-400" />
+              Extra QEM Algorithm Options
+            </span>
+            {onResetDefaults && (
+              <button
+                type="button"
+                onClick={onResetDefaults}
+                className="text-[10px] text-zinc-400 hover:text-emerald-400 flex items-center gap-1 transition-colors cursor-pointer"
+                title="Reset to default QEM settings"
+              >
+                <RotateCcw className="w-2.5 h-2.5" />
+                Reset
+              </button>
+            )}
+          </div>
+
+          {/* Option 1: Lock Color Boundaries */}
+          <div className="p-2.5 rounded-lg bg-zinc-950/70 border border-zinc-800/80 space-y-1">
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={lockColorBoundaries}
+                onChange={(e) => onLockColorBoundariesChange?.(e.target.checked)}
+                className="mt-0.5 rounded accent-emerald-500 cursor-pointer"
+              />
+              <div>
+                <div className="text-xs font-semibold text-zinc-200">
+                  Lock Painted Color Boundaries
+                </div>
+                <p className="text-[10px] text-zinc-400 leading-tight mt-0.5">
+                  Prevents color bleed across neighboring triangles for painted patterns, logos, and eyes.
+                </p>
+              </div>
+            </label>
+          </div>
+
+          {/* Option 2: Color Seam Strictness */}
+          <div className="p-2.5 rounded-lg bg-zinc-950/70 border border-zinc-800/80 space-y-1">
+            <div className="flex justify-between items-baseline text-xs">
+              <span className="font-semibold text-zinc-200 text-xs">
+                Color Seam Strictness
+              </span>
+              <span className="font-mono text-emerald-400 font-bold text-xs">{colorBoundaryWeight}x</span>
+            </div>
+            <input
+              type="range"
+              min={10}
+              max={2000}
+              step={10}
+              value={colorBoundaryWeight}
+              onChange={(e) => onColorBoundaryWeightChange?.(parseInt(e.target.value, 10))}
+              className="w-full accent-emerald-500 cursor-pointer"
+            />
+            <div className="flex justify-between text-[9px] text-zinc-400 font-mono">
+              <span>10x (Soft)</span>
+              <span>500x (Default)</span>
+              <span>2000x (Strict)</span>
+            </div>
+          </div>
+
+          {/* Option 3: Preserve Fine Brush Strokes */}
+          <div className="p-2.5 rounded-lg bg-zinc-950/70 border border-zinc-800/80 space-y-1">
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={resolveSubdivisions}
+                onChange={(e) => onResolveSubdivisionsChange?.(e.target.checked)}
+                className="mt-0.5 rounded accent-emerald-500 cursor-pointer"
+              />
+              <div>
+                <div className="text-xs font-semibold text-zinc-200">
+                  Preserve Fine Brush Strokes
+                </div>
+                <p className="text-[10px] text-zinc-400 leading-tight mt-0.5">
+                  Resolves slicer brush sub-triangles before decimation so fine curved lines stay smooth.
+                </p>
+              </div>
+            </label>
+          </div>
+
+          {/* Option 4: Max Shape Deviation */}
+          <div className="p-2.5 rounded-lg bg-zinc-950/70 border border-zinc-800/80 space-y-1">
+            <div className="flex justify-between items-baseline text-xs">
+              <span className="font-semibold text-zinc-200 text-xs">
+                Max Shape Deviation
+              </span>
+              <span className="font-mono text-emerald-400 font-bold text-xs">
+                {((maxGeometricError ?? 0.02) * 100).toFixed(1)}%
+              </span>
+            </div>
+            <input
+              type="range"
+              min={0.002}
+              max={0.1}
+              step={0.002}
+              value={maxGeometricError}
+              onChange={(e) => onMaxGeometricErrorChange?.(parseFloat(e.target.value))}
+              className="w-full accent-emerald-500 cursor-pointer"
+            />
+          </div>
+
+          {/* Option 5: Lock Open Mesh Borders */}
+          <div className="p-2.5 rounded-lg bg-zinc-950/70 border border-zinc-800/80 space-y-1">
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={lockOpenBorders}
+                onChange={(e) => onLockOpenBordersChange?.(e.target.checked)}
+                className="mt-0.5 rounded accent-emerald-500 cursor-pointer"
+              />
+              <div>
+                <div className="text-xs font-semibold text-zinc-200">
+                  Lock Open Mesh Borders
+                </div>
+                <p className="text-[10px] text-zinc-400 leading-tight mt-0.5">
+                  Locks non-manifold or open shell borders to keep outer edges crisp.
+                </p>
+              </div>
+            </label>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

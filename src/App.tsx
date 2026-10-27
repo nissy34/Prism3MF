@@ -32,11 +32,10 @@ import {
   ThreeViewport,
   ViewportDisplayMode,
 } from './components/ThreeViewport';
-import { ModelTelemetryCard } from './components/ModelTelemetryCard';
-import { FilamentPaletteCard } from './components/FilamentPaletteCard';
+import { ModelInfoAccordion } from './components/ModelInfoAccordion';
+import { LandingHero } from './components/LandingHero';
 import { SimplifyControlCard } from './components/SimplifyControlCard';
 import { CutSplitterControlCard } from './components/CutSplitterControlCard';
-import { QemOptionsPanel } from './components/QemOptionsPanel';
 import type {
   LightweightMeshInfo,
   WorkerRequestMessage,
@@ -86,9 +85,8 @@ export function App() {
   const [maxGeometricError, setMaxGeometricError] = useState<number>(0.02);
   const [lockOpenBorders, setLockOpenBorders] = useState<boolean>(true);
 
-  // QEM Panel Open & Pin states
+  // QEM Panel Open state
   const [isQemOptionsOpen, setIsQemOptionsOpen] = useState<boolean>(false);
-  const [isQemPinned, setIsQemPinned] = useState<boolean>(false);
 
   // Mobile Floating Deck Expanded state
   const [isMobileDeckExpanded, setIsMobileDeckExpanded] = useState<boolean>(true);
@@ -97,7 +95,7 @@ export function App() {
   const [appliedOptions, setAppliedOptions] = useState<SimplificationOptions | null>(null);
 
   // Viewport controls
-  const [displayMode, setDisplayMode] = useState<ViewportDisplayMode>('simplified');
+  const [displayMode, setDisplayMode] = useState<ViewportDisplayMode>('original');
   const [showWireframe, setShowWireframe] = useState<boolean>(true);
   const [highlightColorBorders, setHighlightColorBorders] = useState<boolean>(false);
 
@@ -192,6 +190,7 @@ export function App() {
         setCutResult(msg.result);
         setSimplificationTarget('cut');
         setExplodedOffset(12);
+        setDisplayMode('result'); // Automatically switch to result view to show cut parts!
         setIsProcessing(false);
         setProgress(100);
       } else if (msg.type === 'SIMPLIFIED') {
@@ -199,7 +198,7 @@ export function App() {
         if (msg.cutResult) {
           setCutResult(msg.cutResult);
         }
-        setDisplayMode('simplified'); // Automatically switch to simplified view to show the result!
+        setDisplayMode('result'); // Automatically switch to result view to show the result!
         setProcessingTimeMs(msg.elapsedMs);
         setIsProcessing(false);
         setProgress(100);
@@ -543,43 +542,6 @@ export function App() {
           </div>
         </div>
 
-        {/* Tool Mode Switcher Tabs */}
-        <div className="flex items-center p-1 bg-zinc-950/90 rounded-xl border border-zinc-800 shadow-inner">
-          <button
-            type="button"
-            onClick={() => setToolMode('simplify')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
-              toolMode === 'simplify'
-                ? 'bg-emerald-500 text-zinc-950 shadow-md'
-                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
-            }`}
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Simplify (QEM)</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setToolMode('cut')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
-              toolMode === 'cut'
-                ? 'bg-emerald-500 text-zinc-950 shadow-md'
-                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
-            }`}
-          >
-            <Scissors className="w-3.5 h-3.5" />
-            <span>Split / Cut</span>
-            <span
-              className={`text-[9px] font-mono px-1 py-0.2 rounded font-bold ${
-                toolMode === 'cut'
-                  ? 'bg-zinc-950/30 text-zinc-950'
-                  : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-              }`}
-            >
-              NEW
-            </span>
-          </button>
-        </div>
-
         {/* Center telemetry pill on desktop when file is loaded */}
         {archive && (
           <div className="hidden lg:flex items-center gap-2 px-3 py-1 rounded-full bg-zinc-950/80 border border-zinc-800 text-xs">
@@ -659,47 +621,27 @@ export function App() {
             <span className="hidden sm:inline"> .3MF</span>
           </button>
 
-          {/* QEM & Download buttons: only shown when a model is loaded */}
+          {/* Download button: shown when a model is loaded */}
           {archive && (
-            <>
-              <button
-                type="button"
-                onClick={() => setIsQemOptionsOpen((prev) => !prev)}
-                className={`relative px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors border ${
-                  isQemOptionsOpen
-                    ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
-                    : 'bg-zinc-800/80 border-zinc-700/70 text-zinc-300 hover:bg-zinc-800'
-                }`}
-                title="Extra QEM Algorithm Options (Pin to workspace or adjust boundary constraints)"
-              >
-                <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="hidden xs:inline">QEM Options</span>
-                <span className="xs:hidden">QEM</span>
-                {hasCustomQemSettings && (
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 absolute -top-0.5 -right-0.5 animate-pulse" />
+            <button
+              type="button"
+              disabled={!isSimplified || isProcessing || isExporting}
+              onClick={handleExport3MF}
+              className="px-2.5 sm:px-4 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 disabled:opacity-35 disabled:hover:bg-emerald-500 text-zinc-950 flex items-center gap-1.5 transition-colors shadow-xs shrink-0"
+              title={!isSimplified ? 'Simplify mesh first to download' : 'Download simplified .3MF file'}
+            >
+              <Download className="w-3.5 h-3.5 shrink-0" />
+              <span>
+                {isExporting ? (
+                  'Downloading...'
+                ) : (
+                  <>
+                    <span className="hidden xs:inline">Download </span>
+                    <span>.3MF</span>
+                  </>
                 )}
-              </button>
-
-              <button
-                type="button"
-                disabled={!isSimplified || isProcessing || isExporting}
-                onClick={handleExport3MF}
-                className="px-2.5 sm:px-4 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 disabled:opacity-35 disabled:hover:bg-emerald-500 text-zinc-950 flex items-center gap-1.5 transition-colors shadow-xs shrink-0"
-                title={!isSimplified ? 'Simplify mesh first to download' : 'Download simplified .3MF file'}
-              >
-                <Download className="w-3.5 h-3.5 shrink-0" />
-                <span>
-                  {isExporting ? (
-                    'Downloading...'
-                  ) : (
-                    <>
-                      <span className="hidden xs:inline">Download </span>
-                      <span>.3MF</span>
-                    </>
-                  )}
-                </span>
-              </button>
-            </>
+              </span>
+            </button>
           )}
         </div>
       </header>
@@ -708,9 +650,9 @@ export function App() {
       <div className="flex flex-1 min-h-0 overflow-hidden relative">
         {/* Desktop Left Workspace Sidebar: ONLY rendered when a model is loaded! */}
         {archive && (
-          <aside className="hidden md:flex flex-col w-84 lg:w-96 border-r border-zinc-800/90 bg-zinc-900/60 shrink-0 h-full overflow-y-auto p-3.5 space-y-3.5 animate-in fade-in slide-in-from-left duration-200">
-            {/* Telemetry Card */}
-            <ModelTelemetryCard
+          <aside className="hidden md:flex flex-col w-84 lg:w-96 border-r border-zinc-800/90 bg-zinc-900/60 shrink-0 h-full overflow-y-auto p-3.5 space-y-3 animate-in fade-in slide-in-from-left duration-200">
+            {/* Option B: Collapsible Model Info & Filaments on top (36px when collapsed) */}
+            <ModelInfoAccordion
               fileName={archive.fileName}
               fileSize={archive.fileSize}
               baselineTris={baselineTris}
@@ -719,13 +661,38 @@ export function App() {
               reductionPct={reductionPct}
               processingTimeMs={processingTimeMs}
               totalSubdividedTris={totalSubdividedTris}
-            />
-
-            {/* Filament Palette Card */}
-            <FilamentPaletteCard
               filaments={filaments}
               onFilamentColorChange={handleFilamentColorChange}
+              cutResult={cutResult}
             />
+
+            {/* Tool Selector Tabs: Immediately below model info */}
+            <div className="flex rounded-xl bg-zinc-950/90 p-1 border border-zinc-800 shadow-inner shrink-0">
+              <button
+                type="button"
+                onClick={() => setToolMode('cut')}
+                className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                  toolMode === 'cut'
+                    ? 'bg-emerald-500 text-zinc-950 shadow-md font-bold'
+                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
+                }`}
+              >
+                <Scissors className="w-3.5 h-3.5" />
+                <span>Split / Cut</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setToolMode('simplify')}
+                className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                  toolMode === 'simplify'
+                    ? 'bg-emerald-500 text-zinc-950 shadow-md font-bold'
+                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
+                }`}
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>Simplify (QEM)</span>
+              </button>
+            </div>
 
             {/* Mode: Simplify vs Cut Splitter */}
             {toolMode === 'simplify' ? (
@@ -749,6 +716,17 @@ export function App() {
                 hasCutResult={cutResult !== null}
                 simplificationTarget={simplificationTarget}
                 onSimplificationTargetChange={setSimplificationTarget}
+                lockColorBoundaries={lockColorBoundaries}
+                onLockColorBoundariesChange={setLockColorBoundaries}
+                colorBoundaryWeight={colorBoundaryWeight}
+                onColorBoundaryWeightChange={setColorBoundaryWeight}
+                resolveSubdivisions={resolveSubdivisions}
+                onResolveSubdivisionsChange={setResolveSubdivisions}
+                maxGeometricError={maxGeometricError}
+                onMaxGeometricErrorChange={setMaxGeometricError}
+                lockOpenBorders={lockOpenBorders}
+                onLockOpenBordersChange={setLockOpenBorders}
+                onResetDefaults={handleResetQemDefaults}
               />
             ) : (
               <CutSplitterControlCard
@@ -791,58 +769,80 @@ export function App() {
             <div className="absolute top-2 sm:top-4 left-2 sm:left-4 right-2 sm:right-4 z-10 flex flex-wrap sm:flex-nowrap items-center justify-between pointer-events-none gap-1 sm:gap-1.5">
               {/* Left: View Mode Toggle */}
               <div className="flex items-center gap-0.5 sm:gap-1 p-0.5 sm:p-1 rounded-lg bg-zinc-900/90 border border-zinc-800 backdrop-blur-md shadow-lg pointer-events-auto shrink-0">
-                <button
-                  type="button"
-                  disabled={!isSimplified}
-                  onClick={() => setDisplayMode('simplified')}
-                  className={`px-1.5 sm:px-3 py-1 sm:py-1.5 rounded-md text-[11px] sm:text-xs font-medium flex items-center gap-1 sm:gap-1.5 transition-colors ${
-                    !isSimplified
-                      ? 'opacity-35 cursor-not-allowed text-zinc-500'
-                      : displayMode === 'simplified'
-                        ? 'bg-emerald-500 text-zinc-950 font-semibold shadow-xs'
-                        : 'text-zinc-300 hover:bg-zinc-800'
-                  }`}
-                  title={!isSimplified ? 'Simplify mesh first to view simplified version' : 'View simplified model'}
-                >
-                  <Eye className="w-3.5 h-3.5 shrink-0" />
-                  <span className="hidden sm:inline">
-                    Simplified {isSimplified ? `(${currentSimplifiedTris.toLocaleString()} tris)` : ''}
-                  </span>
-                  <span className="sm:hidden">Simple</span>
-                </button>
+                {(() => {
+                  const hasResult = isSimplified || cutResult !== null;
+                  const isResultActive = displayMode === 'result' || displayMode === 'simplified';
+                  const resultBadge = isSimplified
+                    ? `(-${reductionPct}%)`
+                    : cutResult !== null
+                      ? '(Cut)'
+                      : '';
 
-                <button
-                  type="button"
-                  onClick={() => setDisplayMode('original')}
-                  className={`px-1.5 sm:px-3 py-1 sm:py-1.5 rounded-md text-[11px] sm:text-xs font-medium flex items-center gap-1 sm:gap-1.5 transition-colors ${
-                    displayMode === 'original'
-                      ? 'bg-emerald-500 text-zinc-950 font-semibold shadow-xs'
-                      : 'text-zinc-300 hover:bg-zinc-800'
-                  }`}
-                  title="View original unsimplified model"
-                >
-                  <Layers className="w-3.5 h-3.5 shrink-0" />
-                  <span className="hidden sm:inline">Original ({baselineTris.toLocaleString()} tris)</span>
-                  <span className="sm:hidden">Orig</span>
-                </button>
+                  return (
+                    <>
+                      <button
+                        type="button"
+                        disabled={!hasResult}
+                        onClick={() => setDisplayMode('result')}
+                        className={`px-1.5 sm:px-3 py-1 sm:py-1.5 rounded-md text-[11px] sm:text-xs font-medium flex items-center gap-1 sm:gap-1.5 transition-colors ${
+                          !hasResult
+                            ? 'opacity-35 cursor-not-allowed text-zinc-500'
+                            : isResultActive
+                              ? 'bg-emerald-500 text-zinc-950 font-semibold shadow-xs'
+                              : 'text-zinc-300 hover:bg-zinc-800'
+                        }`}
+                        title={
+                          !hasResult
+                            ? 'Execute a tool (Cut or Simplify) first to view result'
+                            : 'View modified result model'
+                        }
+                      >
+                        <Eye className="w-3.5 h-3.5 shrink-0" />
+                        <span className="hidden sm:inline">
+                          Result {resultBadge}
+                        </span>
+                        <span className="sm:hidden">Result</span>
+                      </button>
 
-                <button
-                  type="button"
-                  disabled={!isSimplified}
-                  onClick={() => setDisplayMode('split')}
-                  className={`px-1.5 sm:px-3 py-1 sm:py-1.5 rounded-md text-[11px] sm:text-xs font-medium flex items-center gap-1 sm:gap-1.5 transition-colors ${
-                    !isSimplified
-                      ? 'opacity-35 cursor-not-allowed text-zinc-500'
-                      : displayMode === 'split'
-                        ? 'bg-emerald-500 text-zinc-950 font-semibold shadow-xs'
-                        : 'text-zinc-300 hover:bg-zinc-800'
-                  }`}
-                  title={!isSimplified ? 'Simplify mesh first to compare' : 'Compare before and after'}
-                >
-                  <Columns className="w-3.5 h-3.5 shrink-0" />
-                  <span className="hidden sm:inline">Before / After Split</span>
-                  <span className="sm:hidden">Split</span>
-                </button>
+                      <button
+                        type="button"
+                        onClick={() => setDisplayMode('original')}
+                        className={`px-1.5 sm:px-3 py-1 sm:py-1.5 rounded-md text-[11px] sm:text-xs font-medium flex items-center gap-1 sm:gap-1.5 transition-colors ${
+                          displayMode === 'original'
+                            ? 'bg-emerald-500 text-zinc-950 font-semibold shadow-xs'
+                            : 'text-zinc-300 hover:bg-zinc-800'
+                        }`}
+                        title="View original unsimplified model"
+                      >
+                        <Layers className="w-3.5 h-3.5 shrink-0" />
+                        <span className="hidden sm:inline">Original ({baselineTris.toLocaleString()} tris)</span>
+                        <span className="sm:hidden">Orig</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={!hasResult}
+                        onClick={() => setDisplayMode('split')}
+                        className={`px-1.5 sm:px-3 py-1 sm:py-1.5 rounded-md text-[11px] sm:text-xs font-medium flex items-center gap-1 sm:gap-1.5 transition-colors ${
+                          !hasResult
+                            ? 'opacity-35 cursor-not-allowed text-zinc-500'
+                            : displayMode === 'split'
+                              ? 'bg-emerald-500 text-zinc-950 font-semibold shadow-xs'
+                              : 'text-zinc-300 hover:bg-zinc-800'
+                        }`}
+                        title={
+                          !hasResult
+                            ? 'Execute a tool first to compare before and after'
+                            : 'Compare before and after'
+                        }
+                      >
+                        <Columns className="w-3.5 h-3.5 shrink-0" />
+                        <span className="hidden sm:inline">Before / After Split</span>
+                        <span className="sm:hidden">Split</span>
+                      </button>
+                    </>
+                  );
+                })()}
               </div>
 
               {/* Right Viewport Overlay Controls: Wireframe & Color Seams */}
@@ -917,8 +917,8 @@ export function App() {
                     </button>
                   </div>
 
-                  {/* Telemetry Summary */}
-                  <ModelTelemetryCard
+                  {/* Option B: Collapsible Model Info Accordion on mobile */}
+                  <ModelInfoAccordion
                     fileName={archive.fileName}
                     fileSize={archive.fileSize}
                     baselineTris={baselineTris}
@@ -927,15 +927,38 @@ export function App() {
                     reductionPct={reductionPct}
                     processingTimeMs={processingTimeMs}
                     totalSubdividedTris={totalSubdividedTris}
-                    compact
-                  />
-
-                  {/* Filaments Row */}
-                  <FilamentPaletteCard
                     filaments={filaments}
                     onFilamentColorChange={handleFilamentColorChange}
-                    compact
+                    cutResult={cutResult}
                   />
+
+                  {/* Tool Switcher on mobile */}
+                  <div className="flex rounded-lg bg-zinc-950/80 p-1 border border-zinc-800 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setToolMode('cut')}
+                      className={`flex-1 py-1.5 px-2 rounded-md text-xs font-semibold flex items-center justify-center gap-1 transition-all ${
+                        toolMode === 'cut'
+                          ? 'bg-emerald-500 text-zinc-950 shadow-md font-bold'
+                          : 'text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      <Scissors className="w-3 h-3" />
+                      <span>Cut</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setToolMode('simplify')}
+                      className={`flex-1 py-1.5 px-2 rounded-md text-xs font-semibold flex items-center justify-center gap-1 transition-all ${
+                        toolMode === 'simplify'
+                          ? 'bg-emerald-500 text-zinc-950 shadow-md font-bold'
+                          : 'text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      <Layers className="w-3 h-3" />
+                      <span>Simplify</span>
+                    </button>
+                  </div>
 
                   {/* Mode: Simplify vs Cut Splitter */}
                   {toolMode === 'simplify' ? (
@@ -959,6 +982,17 @@ export function App() {
                       hasCutResult={cutResult !== null}
                       simplificationTarget={simplificationTarget}
                       onSimplificationTargetChange={setSimplificationTarget}
+                      lockColorBoundaries={lockColorBoundaries}
+                      onLockColorBoundariesChange={setLockColorBoundaries}
+                      colorBoundaryWeight={colorBoundaryWeight}
+                      onColorBoundaryWeightChange={setColorBoundaryWeight}
+                      resolveSubdivisions={resolveSubdivisions}
+                      onResolveSubdivisionsChange={setResolveSubdivisions}
+                      maxGeometricError={maxGeometricError}
+                      onMaxGeometricErrorChange={setMaxGeometricError}
+                      lockOpenBorders={lockOpenBorders}
+                      onLockOpenBordersChange={setLockOpenBorders}
+                      onResetDefaults={handleResetQemDefaults}
                       compact
                     />
                   ) : (
@@ -1118,102 +1152,17 @@ export function App() {
               explodedOffset={explodedOffset}
             />
 
-            {/* Empty State Hero Card (Fully tool-aware landing card) */}
+            {/* Multi-Tool Suite Landing Hero */}
             {!archive && !isProcessing && (
-              <div className="absolute inset-0 flex items-center justify-center p-4 sm:p-6 pointer-events-none">
-                <div className="max-w-lg w-full rounded-2xl border border-zinc-700/60 bg-zinc-900/90 backdrop-blur-xl p-6 sm:p-8 text-center space-y-5 shadow-2xl pointer-events-auto">
-                  {toolMode === 'simplify' ? (
-                    <>
-                      <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mx-auto shadow-inner">
-                        <Layers className="w-7 h-7" />
-                      </div>
-
-                      <div className="space-y-2">
-                        <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-zinc-100">
-                          Simplify Multi-Color 3MF Files
-                        </h2>
-                        <p className="text-xs sm:text-sm text-zinc-400 leading-relaxed max-w-sm mx-auto">
-                          Decimate dense high-poly meshes up to 90% while strictly locking painted filament zones, logos, and brush strokes.
-                        </p>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mx-auto shadow-inner">
-                        <Scissors className="w-7 h-7" />
-                      </div>
-
-                      <div className="space-y-2">
-                        <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-zinc-100">
-                          Color-Preserving Cut Splitter
-                        </h2>
-                        <p className="text-xs sm:text-sm text-zinc-400 leading-relaxed max-w-sm mx-auto">
-                          Cut oversized models to fit build plates (A1 Mini 180mm, X1/P1 256mm) with watertight caps and alignment dowels—keeping all paint intact.
-                        </p>
-                      </div>
-                    </>
-                  )}
-
-                  <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="w-full sm:w-auto px-5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold bg-emerald-500 hover:bg-emerald-400 text-zinc-950 flex items-center justify-center gap-2 transition-all shadow-lg shadow-emerald-500/20 hover:scale-[1.02] cursor-pointer"
-                    >
-                      <Upload className="w-4 h-4" />
-                      {toolMode === 'simplify' ? 'Select .3MF File' : 'Select .3MF to Cut'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleLoadDemoModel}
-                      className="w-full sm:w-auto px-4 py-2.5 rounded-xl text-xs sm:text-sm font-medium bg-zinc-800/90 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 flex items-center justify-center gap-2 transition-colors hover:scale-[1.02] cursor-pointer"
-                    >
-                      {toolMode === 'simplify' ? (
-                        <>
-                          <Sparkles className="w-4 h-4 text-emerald-400" />
-                          Try Demo Model
-                        </>
-                      ) : (
-                        <>
-                          <Scissors className="w-4 h-4 text-emerald-400" />
-                          Try Demo Cut Model
-                        </>
-                      )}
-                    </button>
-                  </div>
-
-                  {/* Highlights pills */}
-                  {toolMode === 'simplify' ? (
-                    <div className="grid grid-cols-3 gap-2 pt-3 border-t border-zinc-800/70 text-[11px] text-zinc-400">
-                      <div className="flex flex-col items-center gap-0.5">
-                        <span className="text-emerald-400 font-semibold">Color-Locked</span>
-                        <span className="text-[10px] text-zinc-500">Zero color bleed</span>
-                      </div>
-                      <div className="flex flex-col items-center gap-0.5 border-x border-zinc-800/70">
-                        <span className="text-emerald-400 font-semibold">Fast QEM</span>
-                        <span className="text-[10px] text-zinc-500">Up to 90% smaller</span>
-                      </div>
-                      <div className="flex flex-col items-center gap-0.5">
-                        <span className="text-emerald-400 font-semibold">100% Private</span>
-                        <span className="text-[10px] text-zinc-500">In-Browser Worker</span>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-3 gap-2 pt-3 border-t border-zinc-800/70 text-[11px] text-zinc-400">
-                      <div className="flex flex-col items-center gap-0.5">
-                        <span className="text-emerald-400 font-semibold">Colors Preserved</span>
-                        <span className="text-[10px] text-zinc-500">AMS/MMU intact</span>
-                      </div>
-                      <div className="flex flex-col items-center gap-0.5 border-x border-zinc-800/70">
-                        <span className="text-emerald-400 font-semibold">Alignment Dowels</span>
-                        <span className="text-[10px] text-zinc-500">FDM snap-fit pins</span>
-                      </div>
-                      <div className="flex flex-col items-center gap-0.5">
-                        <span className="text-emerald-400 font-semibold">Plate-Ready 3MF</span>
-                        <span className="text-[10px] text-zinc-500">Side-by-side export</span>
-                      </div>
-                    </div>
-                  )}
+              <div className="absolute inset-0 flex items-center justify-center p-3 sm:p-6 pointer-events-none overflow-y-auto">
+                <div className="pointer-events-auto w-full my-auto">
+                  <LandingHero
+                    onSelectFile={() => fileInputRef.current?.click()}
+                    onLoadDemo={(mode) => {
+                      if (mode) setToolMode(mode);
+                      handleLoadDemoModel();
+                    }}
+                  />
                 </div>
               </div>
             )}
@@ -1251,56 +1200,6 @@ export function App() {
             </div>
           </div>
         </main>
-
-        {/* Right QEM Options Panel (Desktop pinned or unpinned popover) */}
-        <div className="hidden md:block">
-          <QemOptionsPanel
-            isOpen={isQemOptionsOpen}
-            onClose={() => setIsQemOptionsOpen(false)}
-            isPinned={isQemPinned}
-            onTogglePin={() => setIsQemPinned((v) => !v)}
-            lockColorBoundaries={lockColorBoundaries}
-            onLockColorBoundariesChange={setLockColorBoundaries}
-            colorBoundaryWeight={colorBoundaryWeight}
-            onColorBoundaryWeightChange={setColorBoundaryWeight}
-            resolveSubdivisions={resolveSubdivisions}
-            onResolveSubdivisionsChange={setResolveSubdivisions}
-            maxGeometricError={maxGeometricError}
-            onMaxGeometricErrorChange={setMaxGeometricError}
-            lockOpenBorders={lockOpenBorders}
-            onLockOpenBordersChange={setLockOpenBorders}
-            onResetDefaults={handleResetQemDefaults}
-            onApplyChanges={handleApplySimplification}
-            hasUnappliedChanges={hasUnappliedChanges}
-            isProcessing={isProcessing}
-            mode="panel"
-          />
-        </div>
-      </div>
-
-      {/* Mobile QEM Options Drawer (Slide-up sheet) */}
-      <div className="md:hidden">
-        <QemOptionsPanel
-          isOpen={isQemOptionsOpen}
-          onClose={() => setIsQemOptionsOpen(false)}
-          isPinned={false}
-          onTogglePin={() => {}}
-          lockColorBoundaries={lockColorBoundaries}
-          onLockColorBoundariesChange={setLockColorBoundaries}
-          colorBoundaryWeight={colorBoundaryWeight}
-          onColorBoundaryWeightChange={setColorBoundaryWeight}
-          resolveSubdivisions={resolveSubdivisions}
-          onResolveSubdivisionsChange={setResolveSubdivisions}
-          maxGeometricError={maxGeometricError}
-          onMaxGeometricErrorChange={setMaxGeometricError}
-          lockOpenBorders={lockOpenBorders}
-          onLockOpenBordersChange={setLockOpenBorders}
-          onResetDefaults={handleResetQemDefaults}
-          onApplyChanges={handleApplySimplification}
-          hasUnappliedChanges={hasUnappliedChanges}
-          isProcessing={isProcessing}
-          mode="drawer"
-        />
       </div>
 
       {/* Modal: Core SDK & Programmatic Usage */}
