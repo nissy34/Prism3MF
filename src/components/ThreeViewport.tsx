@@ -261,6 +261,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   const transformControlsRef = useRef<TransformControls | null>(null);
   const gizmoAnchorRef = useRef<THREE.Group | null>(null);
   const [gizmoMode, setGizmoMode] = useState<'translate' | 'rotate'>('translate');
+  const [rotationSnap, setRotationSnap] = useState<number>(15);
 
   // Initialize Three.js Scene & OrcaSlicer-style Build Plate
   useEffect(() => {
@@ -355,12 +356,31 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     gizmoAnchorRef.current = gizmoAnchor;
 
     const tControls = new TransformControls(camera, renderer.domElement);
-    tControls.size = 0.85;
+    tControls.size = 1.15;
     tControls.setSpace('world');
+    tControls.setTranslationSnap(0.5); // 0.5mm height snap
+    tControls.setRotationSnap(THREE.MathUtils.degToRad(15)); // 15° rotation snap
     tControls.showX = false;
     tControls.showY = false;
     tControls.showZ = true;
     const helper = tControls.getHelper ? tControls.getHelper() : (tControls as unknown as THREE.Object3D);
+    helper.traverse((child) => {
+      if ((child as THREE.Mesh).material) {
+        const mat = (child as THREE.Mesh).material;
+        if (Array.isArray(mat)) {
+          mat.forEach((m) => {
+            m.depthTest = false;
+            m.depthWrite = false;
+            m.transparent = true;
+          });
+        } else {
+          mat.depthTest = false;
+          mat.depthWrite = false;
+          mat.transparent = true;
+        }
+      }
+      child.renderOrder = 9999;
+    });
     scene.add(helper);
     transformControlsRef.current = tControls;
 
@@ -460,16 +480,29 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     if (!tc) return;
     if (gizmoMode === 'translate') {
       tc.setMode('translate');
+      tc.setSpace('world');
       tc.showX = false;
       tc.showY = false;
       tc.showZ = true;
     } else {
       tc.setMode('rotate');
+      tc.setSpace('local');
       tc.showX = true;
       tc.showY = true;
-      tc.showZ = false;
+      tc.showZ = true;
     }
   }, [gizmoMode]);
+
+  // Update rotation snapping (15° or 45° or free)
+  useEffect(() => {
+    const tc = transformControlsRef.current;
+    if (!tc) return;
+    if (rotationSnap > 0) {
+      tc.setRotationSnap(THREE.MathUtils.degToRad(rotationSnap));
+    } else {
+      tc.setRotationSnap(null);
+    }
+  }, [rotationSnap]);
 
   // Update Cutting Plane Visualizer Helper & 3D Drag Gizmo
   useEffect(() => {
@@ -543,18 +576,42 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       edgeLines.quaternion.copy(quat);
       planeGroup.add(edgeLines);
 
-      // Center disc handle (Bambu Studio / OrcaSlicer style)
-      const centerDiscGeom = new THREE.CylinderGeometry(3.5, 3.5, 0.6, 24);
-      centerDiscGeom.rotateX(Math.PI / 2);
-      const centerDiscMat = new THREE.MeshStandardMaterial({
+      // Central solid metallic sphere handle (Bambu Studio / OrcaSlicer style)
+      const centerSphereGeom = new THREE.SphereGeometry(4.2, 28, 28);
+      const centerSphereMat = new THREE.MeshStandardMaterial({
         color: '#10b981',
-        roughness: 0.35,
-        metalness: 0.2,
+        emissive: '#047857',
+        roughness: 0.25,
+        metalness: 0.7,
+        depthTest: false,
       });
-      const centerDisc = new THREE.Mesh(centerDiscGeom, centerDiscMat);
-      centerDisc.position.set(0, 0, sceneZ);
-      centerDisc.quaternion.copy(quat);
-      planeGroup.add(centerDisc);
+      const centerSphere = new THREE.Mesh(centerSphereGeom, centerSphereMat);
+      centerSphere.renderOrder = 9998;
+      centerSphere.position.set(0, 0, sceneZ);
+      planeGroup.add(centerSphere);
+
+      // Horizontal red conical arrows on the plane (Bambu Studio tilt indicators)
+      const coneGeom = new THREE.ConeGeometry(2.4, 5.5, 16);
+      coneGeom.rotateZ(-Math.PI / 2);
+      const coneMat = new THREE.MeshBasicMaterial({
+        color: '#ef4444',
+        depthTest: false,
+      });
+      const rightCone = new THREE.Mesh(coneGeom, coneMat);
+      rightCone.position.set(7.5, 0, 0);
+      rightCone.renderOrder = 9998;
+
+      const leftCone = new THREE.Mesh(coneGeom, coneMat);
+      leftCone.rotation.z = Math.PI;
+      leftCone.position.set(-7.5, 0, 0);
+      leftCone.renderOrder = 9998;
+
+      const handleGroup = new THREE.Group();
+      handleGroup.position.set(0, 0, sceneZ);
+      handleGroup.quaternion.copy(quat);
+      handleGroup.add(rightCone);
+      handleGroup.add(leftCone);
+      planeGroup.add(handleGroup);
 
       // Attach 3D Drag Gizmo
       if (gizmoAnchorRef.current) {
@@ -867,38 +924,131 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         </span>
       </div>
 
-      {/* 3D Gizmo Drag Control Pill (Height Arrow vs Tilt Rings) */}
+      {/* 3D Slicer Cut & Snap Control Toolbar */}
       {mode === 'cut' && !cutResult && meshes.length > 0 && (
-        <div className="absolute top-3 right-3 sm:top-4 sm:right-4 z-20 flex items-center gap-1 p-1 rounded-xl bg-zinc-900/90 border border-zinc-800 backdrop-blur-md shadow-xl text-xs pointer-events-auto">
-          <span className="text-[10px] font-semibold text-zinc-400 px-1.5 uppercase tracking-wider hidden sm:inline">
-            Gizmo:
-          </span>
-          <button
-            type="button"
-            onClick={() => setGizmoMode('translate')}
-            className={`px-2 py-1 rounded-lg text-xs font-medium flex items-center gap-1 transition-colors cursor-pointer ${
-              gizmoMode === 'translate'
-                ? 'bg-emerald-500 text-zinc-950 font-semibold shadow-xs'
-                : 'text-zinc-300 hover:bg-zinc-800'
-            }`}
-            title="Drag cut height along vertical arrows"
-          >
-            <Move className="w-3.5 h-3.5" />
-            <span>Height Arrow</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setGizmoMode('rotate')}
-            className={`px-2 py-1 rounded-lg text-xs font-medium flex items-center gap-1 transition-colors cursor-pointer ${
-              gizmoMode === 'rotate'
-                ? 'bg-emerald-500 text-zinc-950 font-semibold shadow-xs'
-                : 'text-zinc-300 hover:bg-zinc-800'
-            }`}
-            title="Tilt cut plane with 3D rotation rings"
-          >
-            <RotateCw className="w-3.5 h-3.5" />
-            <span>Tilt Rings</span>
-          </button>
+        <div className="absolute top-3 right-3 sm:top-4 sm:right-4 z-20 flex flex-col items-end gap-1.5 pointer-events-auto">
+          {/* Main Gizmo & Snap Bar */}
+          <div className="flex flex-wrap items-center gap-1.5 p-1 rounded-xl bg-zinc-900/95 border border-zinc-800 backdrop-blur-md shadow-2xl text-xs">
+            {/* Mode: Translate vs Rotate */}
+            <div className="flex items-center p-0.5 bg-zinc-950 rounded-lg border border-zinc-800/80">
+              <button
+                type="button"
+                onClick={() => setGizmoMode('translate')}
+                className={`px-2 py-1 rounded-md text-xs font-medium flex items-center gap-1 transition-all cursor-pointer ${
+                  gizmoMode === 'translate'
+                    ? 'bg-emerald-500 text-zinc-950 font-semibold shadow-xs'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+                title="Drag cut height along vertical Z arrow"
+              >
+                <Move className="w-3.5 h-3.5" />
+                <span>Height Arrow</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setGizmoMode('rotate')}
+                className={`px-2 py-1 rounded-md text-xs font-medium flex items-center gap-1 transition-all cursor-pointer ${
+                  gizmoMode === 'rotate'
+                    ? 'bg-emerald-500 text-zinc-950 font-semibold shadow-xs'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+                title="Rotate & tilt plane with 3D rotation rings and angle snap points"
+              >
+                <RotateCw className="w-3.5 h-3.5" />
+                <span>Tilt Rings</span>
+              </button>
+            </div>
+
+            {/* Snap Points Selector */}
+            <div className="flex items-center gap-0.5 px-1.5 py-0.5 bg-zinc-950 rounded-lg border border-zinc-800/80 text-[11px]">
+              <span className="text-[10px] text-zinc-400 px-0.5 font-medium">Snap:</span>
+              <button
+                type="button"
+                onClick={() => setRotationSnap(15)}
+                className={`px-1.5 py-0.5 rounded text-[11px] font-mono transition-colors cursor-pointer ${
+                  rotationSnap === 15
+                    ? 'bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/40'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+                title="Snap in 15° increments (0°, 15°, 30°, 45°, 60°, 75°, 90°)"
+              >
+                15°
+              </button>
+              <button
+                type="button"
+                onClick={() => setRotationSnap(45)}
+                className={`px-1.5 py-0.5 rounded text-[11px] font-mono transition-colors cursor-pointer ${
+                  rotationSnap === 45
+                    ? 'bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/40'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+                title="Snap in 45° increments (0°, 45°, 90°)"
+              >
+                45°
+              </button>
+              <button
+                type="button"
+                onClick={() => setRotationSnap(0)}
+                className={`px-1.5 py-0.5 rounded text-[11px] transition-colors cursor-pointer ${
+                  rotationSnap === 0
+                    ? 'bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/40'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+                title="Free continuous rotation without snap points"
+              >
+                Free
+              </button>
+            </div>
+          </div>
+
+          {/* Quick Angle Snap Chips */}
+          <div className="flex items-center gap-1 p-1 rounded-lg bg-zinc-950/85 border border-zinc-800/80 text-[11px] font-mono shadow-lg">
+            <span className="text-[10px] text-zinc-400 px-1 font-sans">Quick Angle:</span>
+            <button
+              type="button"
+              onClick={() => onCutPlaneNormalChange?.([0, 0, 1])}
+              className="px-1.5 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white transition-colors cursor-pointer"
+              title="Snap to Flat horizontal cut"
+            >
+              0° Flat
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const rad = (15 * Math.PI) / 180;
+                onCutPlaneNormalChange?.([0, -Math.sin(rad), Math.cos(rad)]);
+              }}
+              className="px-1.5 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white transition-colors cursor-pointer"
+              title="Snap to 15° pitch angle"
+            >
+              15°
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const rad = (45 * Math.PI) / 180;
+                onCutPlaneNormalChange?.([0, -Math.sin(rad), Math.cos(rad)]);
+              }}
+              className="px-1.5 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white transition-colors cursor-pointer"
+              title="Snap to 45° diagonal angle"
+            >
+              45°
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                onCutPlaneNormalChange?.([
+                  -cutPlaneNormal[0],
+                  -cutPlaneNormal[1],
+                  -cutPlaneNormal[2],
+                ]);
+              }}
+              className="px-1.5 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white transition-colors cursor-pointer"
+              title="Invert / Flip cutting plane normal"
+            >
+              Flip 180°
+            </button>
+          </div>
         </div>
       )}
     </div>

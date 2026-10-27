@@ -73,6 +73,7 @@ export function App() {
   });
   const [cutResult, setCutResult] = useState<CutMeshResult | null>(null);
   const [explodedOffset, setExplodedOffset] = useState<number>(0);
+  const [useSimplifiedForCut, setUseSimplifiedForCut] = useState<boolean>(true);
 
   // Primary Simplification Control
   const [targetRatio, setTargetRatio] = useState<number>(0.25); // 25% of original triangles (75% reduction)
@@ -284,6 +285,12 @@ export function App() {
     workerRef.current.postMessage(req);
   };
 
+  const handleCancelSimplification = () => {
+    setSimplifiedMeshes([]);
+    setDisplayMode('original');
+    setAppliedOptions(null);
+  };
+
   const handleExecuteCut = () => {
     if (!archive || !workerRef.current) return;
     const nextJobId = ++jobIdRef.current;
@@ -302,7 +309,7 @@ export function App() {
         capPaintSlot: 1,
         connectors: cutConnectors,
       },
-      useSimplifiedIfAvailable: isSimplified,
+      useSimplifiedIfAvailable: isSimplified && useSimplifiedForCut,
     };
     workerRef.current.postMessage(req);
   };
@@ -649,6 +656,7 @@ export function App() {
                 isSimplified={isSimplified}
                 hasUnappliedChanges={hasUnappliedChanges}
                 onApplySimplification={handleApplySimplification}
+                onCancelSimplification={handleCancelSimplification}
                 onExport3MF={handleExport3MF}
                 isExporting={isExporting}
                 archiveLoaded={archive !== null}
@@ -675,6 +683,12 @@ export function App() {
                 onExplodedOffsetChange={setExplodedOffset}
                 onExport={handleExportCut}
                 isExporting={isExporting}
+                isSimplified={isSimplified}
+                baselineTris={baselineTris}
+                simplifiedTris={currentSimplifiedTris}
+                useSimplifiedForCut={useSimplifiedForCut}
+                onToggleUseSimplifiedForCut={setUseSimplifiedForCut}
+                onCancelSimplification={handleCancelSimplification}
               />
             )}
           </aside>
@@ -845,6 +859,7 @@ export function App() {
                       isSimplified={isSimplified}
                       hasUnappliedChanges={hasUnappliedChanges}
                       onApplySimplification={handleApplySimplification}
+                      onCancelSimplification={handleCancelSimplification}
                       onExport3MF={handleExport3MF}
                       isExporting={isExporting}
                       archiveLoaded={archive !== null}
@@ -872,6 +887,12 @@ export function App() {
                       onExplodedOffsetChange={setExplodedOffset}
                       onExport={handleExportCut}
                       isExporting={isExporting}
+                      isSimplified={isSimplified}
+                      baselineTris={baselineTris}
+                      simplifiedTris={currentSimplifiedTris}
+                      useSimplifiedForCut={useSimplifiedForCut}
+                      onToggleUseSimplifiedForCut={setUseSimplifiedForCut}
+                      onCancelSimplification={handleCancelSimplification}
                     />
                   )}
                 </div>

@@ -42,6 +42,12 @@ interface CutSplitterControlCardProps {
   onExplodedOffsetChange: (offset: number) => void;
   onExport: (partType: 'all' | 'partA' | 'partB' | 'dowel', assembleInPlace?: boolean) => void;
   isExporting: boolean;
+  isSimplified?: boolean;
+  baselineTris?: number;
+  simplifiedTris?: number;
+  useSimplifiedForCut?: boolean;
+  onToggleUseSimplifiedForCut?: (useSimp: boolean) => void;
+  onCancelSimplification?: () => void;
 }
 
 export const CutSplitterControlCard: React.FC<CutSplitterControlCardProps> = ({
@@ -62,6 +68,12 @@ export const CutSplitterControlCard: React.FC<CutSplitterControlCardProps> = ({
   onExplodedOffsetChange,
   onExport,
   isExporting,
+  isSimplified = false,
+  baselineTris = 0,
+  simplifiedTris = 0,
+  useSimplifiedForCut = true,
+  onToggleUseSimplifiedForCut,
+  onCancelSimplification,
 }) => {
   const [pitchAngle, setPitchAngle] = useState<number>(0);
   const [rollAngle, setRollAngle] = useState<number>(0);
@@ -122,6 +134,43 @@ export const CutSplitterControlCard: React.FC<CutSplitterControlCardProps> = ({
           </div>
         </div>
       </div>
+
+      {/* If Mesh has been simplified, allow choosing to cut simplified or revert to original */}
+      {isSimplified && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between p-2.5 rounded-lg bg-zinc-950/80 border border-zinc-800 gap-2 text-xs">
+          <div className="flex flex-col">
+            <span className="font-semibold text-emerald-400 flex items-center gap-1.5 text-xs">
+              <Sparkles className="w-3.5 h-3.5" />
+              Simplified Mesh Active
+            </span>
+            <span className="text-[11px] text-zinc-400 font-mono">
+              {simplifiedTris.toLocaleString()} tris (Orig: {baselineTris.toLocaleString()})
+            </span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <label className="text-[11px] text-zinc-300 flex items-center gap-1.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={useSimplifiedForCut}
+                onChange={(e) => onToggleUseSimplifiedForCut?.(e.target.checked)}
+                className="rounded bg-zinc-800 border-zinc-700 text-emerald-500 focus:ring-0 w-3.5 h-3.5 cursor-pointer"
+              />
+              <span>Cut Simplified</span>
+            </label>
+            {onCancelSimplification && (
+              <button
+                type="button"
+                onClick={onCancelSimplification}
+                className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700 text-[10px] font-medium flex items-center gap-1 transition-colors cursor-pointer"
+                title="Discard simplification and use original high-poly mesh"
+              >
+                <RotateCcw className="w-3 h-3 text-emerald-400" />
+                <span>Revert Mesh</span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* When Cut Result exists: show Reset Cut / Back to Original bar */}
       {cutResult && (

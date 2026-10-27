@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sliders, Cpu, CheckCircle2, Download, SlidersHorizontal } from 'lucide-react';
+import { Sliders, Cpu, CheckCircle2, Download, SlidersHorizontal, RotateCcw } from 'lucide-react';
 
 export interface SimplifyControlCardProps {
   targetRatio: number;
@@ -11,6 +11,7 @@ export interface SimplifyControlCardProps {
   isSimplified: boolean;
   hasUnappliedChanges: boolean;
   onApplySimplification: () => void;
+  onCancelSimplification?: () => void;
   onExport3MF: () => void;
   isExporting: boolean;
   archiveLoaded: boolean;
@@ -30,6 +31,7 @@ export function SimplifyControlCard({
   isSimplified,
   hasUnappliedChanges,
   onApplySimplification,
+  onCancelSimplification,
   onExport3MF,
   isExporting,
   archiveLoaded,
@@ -143,6 +145,19 @@ export function SimplifyControlCard({
             >
               <Download className="w-3.5 h-3.5" />
               <span>{isExporting ? 'Exporting...' : '.3MF'}</span>
+            </button>
+          )}
+
+          {isSimplified && onCancelSimplification && (
+            <button
+              type="button"
+              disabled={isProcessing}
+              onClick={onCancelSimplification}
+              className="py-2 px-2.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 text-xs flex items-center gap-1 transition-colors shrink-0 cursor-pointer"
+              title="Cancel simplification and revert to original unsimplified mesh"
+            >
+              <RotateCcw className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Revert</span>
             </button>
           )}
 
@@ -311,15 +326,29 @@ export function SimplifyControlCard({
         </button>
 
         {isSimplified && (
-          <button
-            type="button"
-            disabled={isProcessing || isExporting}
-            onClick={onExport3MF}
-            className="w-full py-2.5 px-3 rounded-lg bg-zinc-100 hover:bg-white text-zinc-950 font-semibold text-xs flex items-center justify-center gap-2 transition-colors shadow-sm"
-          >
-            <Download className="w-4 h-4" />
-            <span>{isExporting ? 'Downloading...' : 'Download Simplified .3MF'}</span>
-          </button>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={isProcessing || isExporting}
+              onClick={onExport3MF}
+              className="flex-1 py-2.5 px-3 rounded-lg bg-zinc-100 hover:bg-white text-zinc-950 font-semibold text-xs flex items-center justify-center gap-2 transition-colors shadow-sm cursor-pointer"
+            >
+              <Download className="w-4 h-4" />
+              <span>{isExporting ? 'Downloading...' : 'Download .3MF'}</span>
+            </button>
+            {onCancelSimplification && (
+              <button
+                type="button"
+                disabled={isProcessing}
+                onClick={onCancelSimplification}
+                className="py-2.5 px-3 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 font-medium text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer shrink-0 shadow-xs"
+                title="Discard simplification and return to original unsimplified mesh"
+              >
+                <RotateCcw className="w-4 h-4 text-emerald-400" />
+                <span>Revert Mesh</span>
+              </button>
+            )}
+          </div>
         )}
       </div>
     </div>
