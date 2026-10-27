@@ -2,23 +2,19 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Upload,
   Download,
-  Sliders,
   Layers,
-  ShieldCheck,
   Sparkles,
   Triangle,
   Paintbrush,
   Eye,
   Columns,
   Cpu,
-  FileBox,
   CheckCircle2,
   AlertCircle,
   Code2,
   RotateCcw,
-  ChevronDown,
-  ChevronRight,
-  X,
+  SlidersHorizontal,
+  FileBox,
 } from 'lucide-react';
 import {
   SimplificationOptions,
@@ -30,6 +26,10 @@ import {
   ThreeViewport,
   ViewportDisplayMode,
 } from './components/ThreeViewport';
+import { ModelTelemetryCard } from './components/ModelTelemetryCard';
+import { FilamentPaletteCard } from './components/FilamentPaletteCard';
+import { SimplifyControlCard } from './components/SimplifyControlCard';
+import { QemOptionsPanel } from './components/QemOptionsPanel';
 import type {
   LightweightMeshInfo,
   WorkerRequestMessage,
@@ -50,15 +50,22 @@ export function App() {
   const [filaments, setFilaments] = useState<FilamentInfo[]>([]);
   const [simplifiedMeshes, setSimplifiedMeshes] = useState<SimplifiedMeshResult[]>([]);
 
-  // Simplification controls
+  // Primary Simplification Control
   const [targetRatio, setTargetRatio] = useState<number>(0.25); // 25% of original triangles (75% reduction)
+
+  // Extra QEM Options (Settings)
   const [lockColorBoundaries, setLockColorBoundaries] = useState<boolean>(true);
   const [colorBoundaryWeight, setColorBoundaryWeight] = useState<number>(500);
   const [resolveSubdivisions, setResolveSubdivisions] = useState<boolean>(true);
   const [maxGeometricError, setMaxGeometricError] = useState<number>(0.02);
-  const [showAdvancedSettings, setShowAdvancedSettings] = useState<boolean>(false);
+  const [lockOpenBorders, setLockOpenBorders] = useState<boolean>(true);
+
+  // QEM Panel Open & Pin states
+  const [isQemOptionsOpen, setIsQemOptionsOpen] = useState<boolean>(false);
+  const [isQemPinned, setIsQemPinned] = useState<boolean>(false);
+
+  // Applied options cache for dirty checking
   const [appliedOptions, setAppliedOptions] = useState<SimplificationOptions | null>(null);
-  const [isMobileSettingsOpen, setIsMobileSettingsOpen] = useState<boolean>(false);
 
   // Viewport controls
   const [displayMode, setDisplayMode] = useState<ViewportDisplayMode>('simplified');
@@ -166,11 +173,9 @@ export function App() {
   // Load a 3MF ArrayBuffer inside the Web Worker (parses without auto-simplifying)
   const load3MFBuffer = useCallback(
     (buffer: ArrayBuffer, fileName: string) => {
-      // If a job is already running, recreate the worker to cancel it immediately
       const worker = isProcessing ? createWorker() : workerRef.current || createWorker();
 
       const nextJobId = ++jobIdRef.current;
-      setIsMobileSettingsOpen(false);
       setIsProcessing(true);
       setProgressStage(`Unpacking & Parsing ${fileName}...`);
       setProgress(10);
@@ -220,7 +225,7 @@ export function App() {
       colorBoundaryWeight,
       resolveSubdivisions,
       maxGeometricError,
-      lockOpenBorders: true,
+      lockOpenBorders,
     });
   };
 
@@ -251,6 +256,14 @@ export function App() {
     );
   };
 
+  const handleResetQemDefaults = () => {
+    setLockColorBoundaries(true);
+    setColorBoundaryWeight(500);
+    setResolveSubdivisions(true);
+    setMaxGeometricError(0.02);
+    setLockOpenBorders(true);
+  };
+
   // Compute live statistics
   const origRawTris = archive?.totalRawTriangles ?? 0;
   const origExpandedTris = archive?.totalExpandedTriangles ?? 0;
@@ -277,7 +290,15 @@ export function App() {
       appliedOptions.lockColorBoundaries !== lockColorBoundaries ||
       appliedOptions.resolveSubdivisions !== resolveSubdivisions ||
       appliedOptions.colorBoundaryWeight !== colorBoundaryWeight ||
+      appliedOptions.lockOpenBorders !== lockOpenBorders ||
       Math.abs(appliedOptions.maxGeometricError - maxGeometricError) > 0.0001);
+
+  const hasCustomQemSettings =
+    !lockColorBoundaries ||
+    colorBoundaryWeight !== 500 ||
+    !resolveSubdivisions ||
+    !lockOpenBorders ||
+    Math.abs(maxGeometricError - 0.02) > 0.0001;
 
   const estimatedTargetTris =
     baselineTris > 0 ? Math.max(4, Math.round(baselineTris * targetRatio)) : 0;
@@ -302,43 +323,66 @@ export function App() {
       }}
     >
       {/* Top Header Bar */}
-      <header className="h-14 border-b border-zinc-800/90 bg-zinc-900/80 px-3 sm:px-4 flex items-center justify-between shrink-0 gap-2">
+      <header className="h-14 border-b border-zinc-800/90 bg-zinc-900/80 px-3 sm:px-4 flex items-center justify-between shrink-0 gap-2 z-20">
         <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
-          <div className="w-8 h-8 rounded-md bg-emerald-500/15 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shrink-0">
+          <div className="w-8 h-8 rounded-lg bg-emerald-500/15 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shrink-0 shadow-xs">
             <Layers className="w-4 h-4" />
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <h1 className="text-sm font-semibold tracking-tight text-zinc-100 truncate">
+              <h1 className="text-sm font-bold tracking-tight text-zinc-100 truncate">
                 Prism3MF
               </h1>
               <span className="hidden xs:inline-block text-[10px] sm:text-[11px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 whitespace-nowrap">
                 Color-Preserving QEM
               </span>
             </div>
-            <p className="hidden md:block text-xs text-zinc-400 truncate">
-              Simplify high-poly multi-color 3MF models while preserving painted filament zones
+            <p className="hidden xl:block text-xs text-zinc-400 truncate">
+              Simplify multi-color 3MF models while locking painted filament zones
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
-          {/* Mobile Settings Drawer Toggle Button */}
+        {/* Center telemetry pill on desktop when file is loaded */}
+        {archive && (
+          <div className="hidden lg:flex items-center gap-2 px-3 py-1 rounded-full bg-zinc-950/80 border border-zinc-800 text-xs">
+            <FileBox className="w-3.5 h-3.5 text-emerald-400" />
+            <span className="text-zinc-200 font-medium truncate max-w-44" title={archive.fileName}>
+              {archive.fileName}
+            </span>
+            <span className="text-zinc-500">•</span>
+            <span className="text-zinc-400 font-mono">
+              {baselineTris.toLocaleString()} tris
+            </span>
+            {isSimplified && (
+              <>
+                <span className="text-zinc-600">→</span>
+                <span className="text-emerald-400 font-mono font-semibold">
+                  {currentSimplifiedTris.toLocaleString()} (-{reductionPct}%)
+                </span>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Right Header Action Buttons */}
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          {/* QEM Algorithm Options Button (Settings) */}
           <button
             type="button"
-            onClick={() => setIsMobileSettingsOpen((prev) => !prev)}
-            className={`md:hidden relative px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors border ${
-              isMobileSettingsOpen
+            onClick={() => setIsQemOptionsOpen((prev) => !prev)}
+            className={`relative px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors border ${
+              isQemOptionsOpen
                 ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
                 : 'bg-zinc-800/80 border-zinc-700/70 text-zinc-300 hover:bg-zinc-800'
             }`}
-            aria-label="Toggle settings drawer"
-            title="Toggle simplification settings"
+            title="Extra QEM Algorithm Options (Pin to workspace or adjust boundary constraints)"
           >
-            <Sliders className="w-3.5 h-3.5" />
-            <span>Settings</span>
-            {hasUnappliedChanges && (
-              <span className="w-2 h-2 rounded-full bg-amber-400 absolute -top-0.5 -right-0.5 animate-pulse" />
+            <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-400" />
+            <span className="hidden xs:inline">QEM Options</span>
+            <span className="xs:hidden">QEM</span>
+            {hasCustomQemSettings && (
+              <span className="w-2 h-2 rounded-full bg-emerald-400 absolute -top-0.5 -right-0.5 animate-pulse" />
             )}
           </button>
 
@@ -357,18 +401,19 @@ export function App() {
           <button
             type="button"
             onClick={handleLoadDemoModel}
-            className="hidden sm:flex px-2.5 sm:px-3 py-1.5 rounded-md text-xs font-medium bg-zinc-800/80 hover:bg-zinc-800 text-zinc-300 border border-zinc-700/70 items-center gap-1.5 transition-colors"
-            title="Load built-in multi-color painted demo 3MF"
+            className="hidden sm:flex px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium bg-zinc-800/80 hover:bg-zinc-800 text-zinc-300 border border-zinc-700/70 items-center gap-1.5 transition-colors"
+            title="Load built-in multi-color demo model"
           >
             <RotateCcw className="w-3.5 h-3.5 text-zinc-400" />
-            <span className="hidden md:inline">Demo 3MF</span>
+            <span className="hidden md:inline">Demo Model</span>
             <span className="md:hidden">Demo</span>
           </button>
 
           <button
             type="button"
             onClick={() => setShowIntegrationModal(true)}
-            className="hidden lg:flex px-3 py-1.5 rounded-md text-xs font-medium bg-zinc-800/80 hover:bg-zinc-800 text-zinc-300 border border-zinc-700/70 items-center gap-1.5 transition-colors"
+            className="hidden xl:flex px-3 py-1.5 rounded-lg text-xs font-medium bg-zinc-800/80 hover:bg-zinc-800 text-zinc-300 border border-zinc-700/70 items-center gap-1.5 transition-colors"
+            title="TypeScript / Node.js programmatic SDK"
           >
             <Code2 className="w-3.5 h-3.5 text-emerald-400" />
             Core SDK
@@ -377,7 +422,7 @@ export function App() {
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="px-2.5 sm:px-3.5 py-1.5 rounded-md text-xs font-medium bg-zinc-100 hover:bg-white text-zinc-950 flex items-center gap-1.5 transition-colors shadow-sm"
+            className="px-2.5 sm:px-3.5 py-1.5 rounded-lg text-xs font-medium bg-zinc-100 hover:bg-white text-zinc-950 flex items-center gap-1.5 transition-colors shadow-xs"
           >
             <Upload className="w-3.5 h-3.5 shrink-0" />
             <span className="hidden xs:inline">Open</span>
@@ -388,7 +433,7 @@ export function App() {
             type="button"
             disabled={!isSimplified || isProcessing || isExporting}
             onClick={handleExport3MF}
-            className="px-2.5 sm:px-4 py-1.5 rounded-md text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 disabled:opacity-35 disabled:hover:bg-emerald-500 text-zinc-950 flex items-center gap-1.5 transition-colors shadow-sm shrink-0"
+            className="px-2.5 sm:px-4 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 disabled:opacity-35 disabled:hover:bg-emerald-500 text-zinc-950 flex items-center gap-1.5 transition-colors shadow-xs shrink-0"
             title={!isSimplified ? 'Simplify mesh first to download' : 'Download simplified .3MF file'}
           >
             <Download className="w-3.5 h-3.5 shrink-0" />
@@ -406,467 +451,85 @@ export function App() {
         </div>
       </header>
 
-      {/* Main Content Area */}
+      {/* Main Workspace Layout */}
       <div className="flex flex-1 min-h-0 overflow-hidden relative">
-        {/* Mobile Backdrop Overlay */}
-        {isMobileSettingsOpen && (
-          <div
-            className="fixed inset-0 bg-black/60 backdrop-blur-xs z-30 md:hidden"
-            onClick={() => setIsMobileSettingsOpen(false)}
-          />
-        )}
+        {/* Desktop Left Workspace Sidebar: Telemetry + Filaments + Simplification Controls */}
+        <aside className="hidden md:flex flex-col w-84 lg:w-96 border-r border-zinc-800/90 bg-zinc-900/60 shrink-0 h-full overflow-y-auto p-3.5 space-y-3.5">
+          {archive ? (
+            <>
+              {/* Telemetry Card */}
+              <ModelTelemetryCard
+                fileName={archive.fileName}
+                fileSize={archive.fileSize}
+                baselineTris={baselineTris}
+                currentSimplifiedTris={currentSimplifiedTris}
+                isSimplified={isSimplified}
+                reductionPct={reductionPct}
+                processingTimeMs={processingTimeMs}
+                totalSubdividedTris={totalSubdividedTris}
+              />
 
-        {/* Control Sidebar: Fixed slide-up drawer on mobile, left docked sidebar on desktop */}
-        <aside
-          className={`
-            fixed inset-x-0 bottom-0 max-h-[85dvh] rounded-t-2xl z-40 bg-zinc-900 border-t border-zinc-800 shadow-2xl flex flex-col transition-transform duration-300 ease-out
-            ${isMobileSettingsOpen ? 'translate-y-0' : 'translate-y-full pointer-events-none'}
-            md:static md:translate-y-0 md:pointer-events-auto md:max-h-none md:rounded-none md:z-10
-            md:w-80 lg:w-96 md:border-r md:border-t-0 md:border-zinc-800/90 md:bg-zinc-900/50 md:shrink-0
-          `}
-        >
-          {/* Mobile Drawer Grab Handle & Header with Close Button */}
-          <div className="md:hidden pt-2.5 pb-2.5 px-4 border-b border-zinc-800/80 flex items-center justify-between shrink-0 bg-zinc-900/90 rounded-t-2xl">
-            <div className="flex items-center gap-2">
-              <Sliders className="w-4 h-4 text-emerald-400" />
-              <span className="text-xs font-semibold uppercase tracking-wider text-zinc-200">
-                Simplification Settings
-              </span>
-              {hasUnappliedChanges && (
-                <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">
-                  Unsaved
-                </span>
-              )}
-            </div>
-            <button
-              type="button"
-              onClick={() => setIsMobileSettingsOpen(false)}
-              className="p-1 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors"
-              aria-label="Close settings popup"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
+              {/* Filament Palette Card */}
+              <FilamentPaletteCard
+                filaments={filaments}
+                onFilamentColorChange={handleFilamentColorChange}
+              />
 
-          {/* Scrollable inner content container */}
-          <div className="flex-1 overflow-y-auto overscroll-contain">
-          {/* Active File & Mesh Telemetry Card */}
-          <div className="p-4 border-b border-zinc-800/80 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
-                <FileBox className="w-3.5 h-3.5 text-emerald-400" />
-                Model Telemetry
-              </span>
-              {processingTimeMs > 0 && !isProcessing && (
-                <span className="text-[11px] font-mono text-emerald-400 flex items-center gap-1">
-                  <CheckCircle2 className="w-3 h-3" />
-                  {(processingTimeMs / 1000).toFixed(2)}s
-                </span>
-              )}
-            </div>
-
-            {archive ? (
-              <div className="rounded-md bg-zinc-900 border border-zinc-800 p-3 space-y-2.5">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="truncate text-xs font-medium text-zinc-200" title={archive.fileName}>
-                    {archive.fileName}
-                  </div>
-                  <span className="text-[10px] font-mono text-zinc-400 shrink-0">
-                    {(archive.fileSize / 1024 / 1024).toFixed(1)} MB
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 pt-1">
-                  <div className="bg-zinc-950/70 rounded p-2 border border-zinc-800/60">
-                    <div className="text-[10px] uppercase text-zinc-400">
-                      Input Triangles
-                    </div>
-                    <div className="text-sm font-mono font-semibold text-zinc-200 mt-0.5">
-                      {baselineTris.toLocaleString()}
-                    </div>
-                    {totalSubdividedTris > 0 && (
-                      <div className="text-[10px] text-zinc-400 mt-0.5">
-                        ({totalSubdividedTris.toLocaleString()} painted trees)
-                      </div>
-                    )}
-                  </div>
-
-                  <div className={`rounded p-2 border ${
-                    isSimplified
-                      ? 'bg-emerald-950/20 border-emerald-500/30'
-                      : 'bg-zinc-950/40 border-zinc-800/40'
-                  }`}>
-                    <div className={`text-[10px] uppercase ${isSimplified ? 'text-emerald-300/80' : 'text-zinc-500'}`}>
-                      Simplified Output
-                    </div>
-                    <div className={`text-sm font-mono font-semibold mt-0.5 ${isSimplified ? 'text-emerald-400' : 'text-zinc-500'}`}>
-                      {isSimplified ? currentSimplifiedTris.toLocaleString() : 'Not run yet'}
-                    </div>
-                    <div className={`text-[10px] font-mono mt-0.5 ${isSimplified ? 'text-emerald-400/90' : 'text-zinc-500'}`}>
-                      {isSimplified ? `-${reductionPct}% polygons` : 'Click simplify below'}
-                    </div>
-                  </div>
-                </div>
+              {/* Simplification Controls Card */}
+              <SimplifyControlCard
+                targetRatio={targetRatio}
+                onTargetRatioChange={setTargetRatio}
+                baselineTris={baselineTris}
+                estimatedTargetTris={estimatedTargetTris}
+                isProcessing={isProcessing}
+                progress={progress}
+                isSimplified={isSimplified}
+                hasUnappliedChanges={hasUnappliedChanges}
+                onApplySimplification={handleApplySimplification}
+                onExport3MF={handleExport3MF}
+                isExporting={isExporting}
+                archiveLoaded={archive !== null}
+                onToggleQemOptions={() => setIsQemOptionsOpen((v) => !v)}
+                isQemOptionsOpen={isQemOptionsOpen}
+                hasCustomQemSettings={hasCustomQemSettings}
+              />
+            </>
+          ) : (
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 text-center space-y-3 my-auto">
+              <div className="w-10 h-10 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mx-auto">
+                <FileBox className="w-5 h-5" />
               </div>
-            ) : (
-              <div className="rounded-md bg-zinc-900/60 border border-zinc-800/80 p-3 text-xs text-zinc-400">
-                No model loaded. Open or drop a <code className="text-zinc-300 font-mono">.3mf</code> file to inspect triangle counts and paint zones.
-              </div>
-            )}
-          </div>
-
-          {/* Decimation Parameters */}
-          <div className="p-4 border-b border-zinc-800/80 space-y-4">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
-                <Sliders className="w-3.5 h-3.5 text-emerald-400" />
-                Simplification Settings
-              </span>
-              {hasUnappliedChanges && !isProcessing && (
-                <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">
-                  Unsaved changes
-                </span>
-              )}
-            </div>
-
-            {/* Target Ratio Slider & Presets (desktop sidebar; on mobile, controlled directly on the 3D screen) */}
-            <div className="hidden md:block space-y-4">
-              <div className="space-y-1.5">
-                <div className="flex justify-between items-baseline text-xs">
-                  <label htmlFor="target-ratio-slider" className="text-zinc-200 font-medium">
-                    Triangles to Keep
-                  </label>
-                  <span className="font-mono text-emerald-400 font-semibold">
-                    {Math.round(targetRatio * 100)}% ({Math.round((1 - targetRatio) * 100)}% smaller)
-                  </span>
-                </div>
-                <p className="text-[11px] text-zinc-400 leading-relaxed">
-                  Lower % creates a lighter file that slices faster.
-                  {baselineTris > 0 && (
-                    <span className="text-zinc-300 font-mono">
-                      {' '}Target: ~{estimatedTargetTris.toLocaleString()} tris
-                    </span>
-                  )}
+              <div>
+                <h3 className="text-xs font-semibold text-zinc-200">No Model Loaded</h3>
+                <p className="text-[11px] text-zinc-400 mt-1 leading-relaxed">
+                  Open any painted multi-color .3MF file to view triangle telemetry, filament slots, and simplification options.
                 </p>
-                <input
-                  id="target-ratio-slider"
-                  type="range"
-                  min={0.05}
-                  max={0.95}
-                  step={0.05}
-                  value={targetRatio}
-                  onChange={(e) => setTargetRatio(parseFloat(e.target.value))}
-                  className="w-full accent-emerald-500 cursor-pointer"
-                />
-                <div className="flex justify-between text-[10px] text-zinc-400">
-                  <span>Smallest File (5%)</span>
-                  <span>Balanced (25%)</span>
-                  <span>Max Detail (95%)</span>
-                </div>
               </div>
-
-              {/* Quick Presets */}
-              <div className="space-y-1">
-                <div className="text-[10px] uppercase tracking-wider text-zinc-400">
-                  Quick Presets
-                </div>
-                <div className="grid grid-cols-4 gap-1.5">
-                  {[
-                    { label: '10%', ratio: 0.1 },
-                    { label: '25%', ratio: 0.25 },
-                    { label: '50%', ratio: 0.5 },
-                    { label: '75%', ratio: 0.75 },
-                  ].map((preset) => (
-                    <button
-                      key={preset.label}
-                      type="button"
-                      disabled={isProcessing}
-                      onClick={() => setTargetRatio(preset.ratio)}
-                      className={`py-1 rounded text-xs font-mono border transition-colors ${
-                        Math.abs(targetRatio - preset.ratio) < 0.01
-                          ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-300 font-semibold'
-                          : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
-                      }`}
-                    >
-                      Keep {preset.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Paint Protection Settings */}
-            <div className="pt-3 space-y-3 border-t border-zinc-800/60">
-              <div className="text-xs font-semibold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                Paint &amp; Shape Protection
-              </div>
-
-              <label className="flex items-start gap-2.5 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={lockColorBoundaries}
-                  onChange={(e) => setLockColorBoundaries(e.target.checked)}
-                  className="mt-0.5 rounded accent-emerald-500"
-                />
-                <div>
-                  <div className="text-xs font-medium text-zinc-200">
-                    Keep Paint Edges Sharp
-                  </div>
-                  <div className="text-[11px] text-zinc-400 leading-relaxed">
-                    Locks borders between different filament colors so painted eyes, text, and logos never bleed into each other.
-                  </div>
-                </div>
-              </label>
-
-              {/* Collapsible Advanced Tuning */}
-              <div className="pt-1">
+              <div className="pt-1 flex flex-col gap-2">
                 <button
                   type="button"
-                  onClick={() => setShowAdvancedSettings((v) => !v)}
-                  className="w-full flex items-center justify-between py-1.5 px-2.5 rounded bg-zinc-900/80 hover:bg-zinc-900 border border-zinc-800/80 text-xs font-medium text-zinc-300 transition-colors"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-full py-2 px-3 rounded-lg text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 text-zinc-950 flex items-center justify-center gap-1.5 transition-colors shadow"
                 >
-                  <span>Advanced Quality Tuning</span>
-                  {showAdvancedSettings ? (
-                    <ChevronDown className="w-3.5 h-3.5 text-zinc-400" />
-                  ) : (
-                    <ChevronRight className="w-3.5 h-3.5 text-zinc-400" />
-                  )}
+                  <Upload className="w-3.5 h-3.5" />
+                  Select .3MF File
                 </button>
-
-                {showAdvancedSettings && (
-                  <div className="mt-2.5 p-3 rounded-md bg-zinc-900/40 border border-zinc-800/70 space-y-3.5">
-                    <label className="flex items-start gap-2.5 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={resolveSubdivisions}
-                        onChange={(e) => setResolveSubdivisions(e.target.checked)}
-                        className="mt-0.5 rounded accent-emerald-500"
-                      />
-                      <div>
-                        <div className="text-xs font-medium text-zinc-200">
-                          Preserve Fine Brush Strokes
-                        </div>
-                        <div className="text-[11px] text-zinc-400 leading-relaxed">
-                          Splits triangles that were painted with fine slicer brush strokes (<code className="text-zinc-300">paint_color</code> trees) so curved color lines stay smooth instead of blocky.
-                        </div>
-                      </div>
-                    </label>
-
-                    <div className="space-y-1 pt-1 border-t border-zinc-800/60">
-                      <div className="flex justify-between text-xs">
-                        <label htmlFor="boundary-weight-slider" className="text-zinc-200 font-medium">
-                          Color Seam Strictness
-                        </label>
-                        <span className="font-mono text-emerald-400">
-                          {colorBoundaryWeight}x
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-zinc-400 leading-relaxed">
-                        How strongly painted borders resist moving. Increase if thin color lines shift; lower to allow more reduction along seams.
-                      </p>
-                      <input
-                        id="boundary-weight-slider"
-                        type="range"
-                        min={10}
-                        max={2000}
-                        step={10}
-                        value={colorBoundaryWeight}
-                        onChange={(e) => setColorBoundaryWeight(parseInt(e.target.value, 10))}
-                        className="w-full accent-emerald-500 cursor-pointer"
-                      />
-                      <div className="flex justify-between text-[10px] text-zinc-400">
-                        <span>Softer seams (10x)</span>
-                        <span>Default (500x)</span>
-                        <span>Strictest (2000x)</span>
-                      </div>
-                    </div>
-
-                    <div className="space-y-1 pt-1 border-t border-zinc-800/60">
-                      <div className="flex justify-between text-xs">
-                        <label htmlFor="geom-error-slider" className="text-zinc-200 font-medium">
-                          Max Shape Deviation
-                        </label>
-                        <span className="font-mono text-emerald-400">
-                          {(maxGeometricError * 100).toFixed(1)}%
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-zinc-400 leading-relaxed">
-                        Stops simplifying curved surfaces early if the 3D shape would shift by more than this percentage of the model size.
-                      </p>
-                      <input
-                        id="geom-error-slider"
-                        type="range"
-                        min={0.002}
-                        max={0.1}
-                        step={0.002}
-                        value={maxGeometricError}
-                        onChange={(e) => setMaxGeometricError(parseFloat(e.target.value))}
-                        className="w-full accent-emerald-500 cursor-pointer"
-                      />
-                      <div className="flex justify-between text-[10px] text-zinc-400">
-                        <span>Strict shape (0.2%)</span>
-                        <span>Default (2.0%)</span>
-                        <span>More reduction (10%)</span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Desktop Action Buttons with Live Sync Status (on mobile, handled by drawer footer) */}
-            <div className="hidden md:block space-y-2 pt-1">
-              {hasUnappliedChanges && !isProcessing && (
-                <div className="text-[11px] text-amber-300/90 bg-amber-500/10 border border-amber-500/25 rounded px-2.5 py-1.5 text-center">
-                  Settings changed — click below to update the 3D model
-                </div>
-              )}
-
-              <button
-                type="button"
-                disabled={!archive || isProcessing || (isSimplified && !hasUnappliedChanges)}
-                onClick={handleApplySimplification}
-                className={`w-full py-2.5 px-3 rounded-md font-semibold text-xs flex items-center justify-center gap-2 transition-all ${
-                  !archive
-                    ? 'bg-zinc-900 border border-zinc-800 text-zinc-500 cursor-not-allowed'
-                    : isProcessing
-                      ? 'bg-emerald-500/80 text-zinc-950 cursor-wait'
-                      : !isSimplified
-                        ? 'bg-emerald-500 hover:bg-emerald-400 text-zinc-950 shadow-lg shadow-emerald-500/20 ring-2 ring-emerald-400/40'
-                        : hasUnappliedChanges
-                          ? 'bg-emerald-500 hover:bg-emerald-400 text-zinc-950 shadow-lg shadow-emerald-500/10 ring-2 ring-emerald-400/40'
-                          : 'bg-zinc-900/90 border border-emerald-500/30 text-emerald-400 cursor-default'
-                }`}
-              >
-                {!archive ? (
-                  <>
-                    <Cpu className="w-4 h-4" />
-                    Open a .3MF File First
-                  </>
-                ) : isProcessing ? (
-                  <>
-                    <Cpu className="w-4 h-4 animate-spin" />
-                    Simplifying Mesh ({progress}%)...
-                  </>
-                ) : !isSimplified ? (
-                  <>
-                    <Cpu className="w-4 h-4" />
-                    Simplify Mesh (Keep {Math.round(targetRatio * 100)}%)
-                  </>
-                ) : hasUnappliedChanges ? (
-                  <>
-                    <Cpu className="w-4 h-4" />
-                    Re-simplify (Keep {Math.round(targetRatio * 100)}%)
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                    Mesh Simplified ({Math.round(targetRatio * 100)}% Kept)
-                  </>
-                )}
-              </button>
-
-              {isSimplified && (
                 <button
                   type="button"
-                  disabled={isProcessing || isExporting}
-                  onClick={handleExport3MF}
-                  className="w-full py-2.5 px-3 rounded-md bg-zinc-100 hover:bg-white text-zinc-950 font-semibold text-xs flex items-center justify-center gap-2 transition-colors shadow-sm"
+                  onClick={handleLoadDemoModel}
+                  className="w-full py-2 px-3 rounded-lg text-xs font-medium bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 flex items-center justify-center gap-1.5 transition-colors"
                 >
-                  <Download className="w-4 h-4" />
-                  <span>{isExporting ? 'Downloading...' : 'Download .3MF'}</span>
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                  Load Demo 3MF
                 </button>
-              )}
-            </div>
-          </div>
-
-          {/* Multi-Color Filament Slots Palette */}
-          <div className="p-4 space-y-3 flex-1">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
-                Filament Palette ({filaments.length})
-              </span>
-              {filaments.length > 0 && (
-                <span className="text-[11px] text-zinc-400">Click to preview tint</span>
-              )}
-            </div>
-
-            {filaments.length === 0 ? (
-              <div className="rounded-md bg-zinc-900/60 border border-zinc-800/80 p-3 text-xs text-zinc-400">
-                Filament slots and colors from the <code className="text-zinc-300 font-mono">.3mf</code> project settings will appear here once a file is loaded.
               </div>
-            ) : (
-              <div className="space-y-1.5">
-                {filaments.map((fil) => (
-                  <div
-                    key={fil.id}
-                    className="flex items-center justify-between p-2 rounded bg-zinc-900/90 border border-zinc-800/80 text-xs"
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <label
-                        className="relative w-5 h-5 rounded border border-zinc-600 shrink-0 cursor-pointer overflow-hidden"
-                        style={{ backgroundColor: fil.color }}
-                        title={`Change preview color for Slot ${fil.id}`}
-                      >
-                        <input
-                          type="color"
-                          value={fil.color}
-                          onChange={(e) => handleFilamentColorChange(fil.id, e.target.value)}
-                          className="opacity-0 absolute inset-0 w-full h-full cursor-pointer"
-                        />
-                      </label>
-                      <div className="truncate">
-                        <div className="font-medium text-zinc-200 truncate">
-                          Slot {fil.id}: {fil.name || `Extruder ${fil.id}`}
-                        </div>
-                        <div className="text-[10px] font-mono text-zinc-400">
-                          paint_color=&quot;{fil.id === 1 ? '4' : fil.id === 2 ? '8' : `${(fil.id - 3).toString(16).toUpperCase()}C`}&quot; • {fil.color.toUpperCase()}
-                        </div>
-                      </div>
-                    </div>
-                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 shrink-0">
-                      {fil.type || 'PLA'}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          </div>
-
-          {/* Mobile Drawer Bottom Action Bar */}
-          <div className="md:hidden p-3 bg-zinc-950/95 backdrop-blur-md border-t border-zinc-800 flex items-center gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={() => setIsMobileSettingsOpen(false)}
-              className="flex-1 py-2 px-3 rounded-md bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors"
-            >
-              <Eye className="w-3.5 h-3.5 text-emerald-400" />
-              Done / Back to 3D
-            </button>
-            {(!isSimplified || hasUnappliedChanges) && (
-              <button
-                type="button"
-                disabled={!archive || isProcessing}
-                onClick={() => {
-                  handleApplySimplification();
-                  setIsMobileSettingsOpen(false);
-                }}
-                className="flex-1 py-2 px-3 rounded-md bg-emerald-500 hover:bg-emerald-400 text-zinc-950 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors shadow"
-              >
-                <Cpu className="w-3.5 h-3.5" />
-                {isSimplified ? 'Re-simplify & Close' : 'Simplify & Close'}
-              </button>
-            )}
-          </div>
+            </div>
+          )}
         </aside>
 
-        {/* Center 3D Viewport Area - Always visible */}
+        {/* Center: 3D Viewport Area */}
         <main className="flex flex-1 relative flex-col bg-zinc-950 min-w-0 h-full overflow-hidden">
-          {/* Floating Viewport Toolbar */}
+          {/* Floating Viewport Toolbar (View Modes + Wireframe & Seams Toggles) */}
           {archive && (
             <div className="absolute top-2 sm:top-4 left-2 sm:left-4 right-2 sm:right-4 z-10 flex items-center justify-between pointer-events-none gap-1.5">
               {/* Left: View Mode Toggle */}
@@ -879,7 +542,7 @@ export function App() {
                     !isSimplified
                       ? 'opacity-35 cursor-not-allowed text-zinc-500'
                       : displayMode === 'simplified'
-                        ? 'bg-emerald-500 text-zinc-950 font-semibold'
+                        ? 'bg-emerald-500 text-zinc-950 font-semibold shadow-xs'
                         : 'text-zinc-300 hover:bg-zinc-800'
                   }`}
                   title={!isSimplified ? 'Simplify mesh first to view simplified version' : 'View simplified model'}
@@ -896,7 +559,7 @@ export function App() {
                   onClick={() => setDisplayMode('original')}
                   className={`px-2 sm:px-3 py-1 sm:py-1.5 rounded-md text-[11px] sm:text-xs font-medium flex items-center gap-1 sm:gap-1.5 transition-colors ${
                     displayMode === 'original'
-                      ? 'bg-emerald-500 text-zinc-950 font-semibold'
+                      ? 'bg-emerald-500 text-zinc-950 font-semibold shadow-xs'
                       : 'text-zinc-300 hover:bg-zinc-800'
                   }`}
                 >
@@ -913,7 +576,7 @@ export function App() {
                     !isSimplified
                       ? 'opacity-35 cursor-not-allowed text-zinc-500'
                       : displayMode === 'split'
-                        ? 'bg-emerald-500 text-zinc-950 font-semibold'
+                        ? 'bg-emerald-500 text-zinc-950 font-semibold shadow-xs'
                         : 'text-zinc-300 hover:bg-zinc-800'
                   }`}
                   title={!isSimplified ? 'Simplify mesh first to compare' : 'Compare before and after'}
@@ -971,109 +634,48 @@ export function App() {
             </div>
           )}
 
-          {/* Mobile floating quick simplification bar over 3D View */}
+          {/* Mobile Floating Workspace Deck: Telemetry + Filaments + Simplification */}
           {archive && (
-            <div className="md:hidden absolute bottom-10 left-2.5 right-2.5 z-20 p-2.5 rounded-xl bg-zinc-900/95 border border-zinc-800/90 backdrop-blur-md shadow-2xl space-y-2 pointer-events-auto">
-              {/* Row 1: Target label & Live estimated tris */}
-              <div className="flex items-center justify-between text-xs">
-                <div className="flex items-center gap-1.5 font-medium text-zinc-200">
-                  <Sliders className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Triangles to Keep:</span>
-                  <span className="font-mono text-emerald-400 font-semibold">
-                    {Math.round(targetRatio * 100)}%
-                  </span>
-                </div>
-                <span className="text-[10px] font-mono text-zinc-400">
-                  {isSimplified
-                    ? `${currentSimplifiedTris.toLocaleString()} tris (-${reductionPct}%)`
-                    : `~${estimatedTargetTris.toLocaleString()} tris (-${Math.round((1 - targetRatio) * 100)}%)`}
-                </span>
-              </div>
+            <div className="md:hidden absolute bottom-10 left-2.5 right-2.5 z-20 p-3 rounded-2xl bg-zinc-900/95 border border-zinc-800/90 backdrop-blur-md shadow-2xl space-y-2.5 pointer-events-auto">
+              {/* Telemetry Summary */}
+              <ModelTelemetryCard
+                fileName={archive.fileName}
+                fileSize={archive.fileSize}
+                baselineTris={baselineTris}
+                currentSimplifiedTris={currentSimplifiedTris}
+                isSimplified={isSimplified}
+                reductionPct={reductionPct}
+                processingTimeMs={processingTimeMs}
+                totalSubdividedTris={totalSubdividedTris}
+                compact
+              />
 
-              {/* Row 2: The Ratio Slider + Presets */}
-              <div className="flex items-center gap-2">
-                <input
-                  type="range"
-                  min={0.05}
-                  max={0.95}
-                  step={0.05}
-                  value={targetRatio}
-                  onChange={(e) => setTargetRatio(parseFloat(e.target.value))}
-                  className="flex-1 accent-emerald-500 cursor-pointer h-1.5"
-                />
-                <div className="flex items-center gap-1 shrink-0">
-                  {[
-                    { label: '10%', ratio: 0.1 },
-                    { label: '25%', ratio: 0.25 },
-                    { label: '50%', ratio: 0.5 },
-                  ].map((p) => (
-                    <button
-                      key={p.label}
-                      type="button"
-                      onClick={() => setTargetRatio(p.ratio)}
-                      className={`px-1.5 py-0.5 rounded text-[10px] font-mono border ${
-                        Math.abs(targetRatio - p.ratio) < 0.01
-                          ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-300 font-semibold'
-                          : 'bg-zinc-800 border-zinc-700 text-zinc-400'
-                      }`}
-                    >
-                      {p.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              {/* Filaments Row */}
+              <FilamentPaletteCard
+                filaments={filaments}
+                onFilamentColorChange={handleFilamentColorChange}
+                compact
+              />
 
-              {/* Row 3: Action Buttons */}
-              <div className="flex items-center gap-1.5 pt-0.5">
-                <button
-                  type="button"
-                  disabled={isProcessing}
-                  onClick={handleApplySimplification}
-                  className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all shadow ${
-                    isProcessing
-                      ? 'bg-emerald-500/80 text-zinc-950 cursor-wait'
-                      : !isSimplified
-                        ? 'bg-emerald-500 hover:bg-emerald-400 text-zinc-950 shadow-emerald-500/20 ring-2 ring-emerald-400/40'
-                        : hasUnappliedChanges
-                          ? 'bg-emerald-500 hover:bg-emerald-400 text-zinc-950 ring-2 ring-emerald-400/40'
-                          : 'bg-zinc-800 text-emerald-400 border border-emerald-500/30'
-                  }`}
-                >
-                  {isProcessing ? (
-                    <>
-                      <Cpu className="w-3.5 h-3.5 animate-spin" />
-                      <span>Simplifying ({progress}%)...</span>
-                    </>
-                  ) : !isSimplified ? (
-                    <>
-                      <Cpu className="w-3.5 h-3.5" />
-                      <span>Simplify Mesh ({Math.round(targetRatio * 100)}%)</span>
-                    </>
-                  ) : hasUnappliedChanges ? (
-                    <>
-                      <Cpu className="w-3.5 h-3.5" />
-                      <span>Re-simplify ({Math.round(targetRatio * 100)}%)</span>
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>Simplified</span>
-                    </>
-                  )}
-                </button>
-
-                {isSimplified && (
-                  <button
-                    type="button"
-                    disabled={isProcessing || isExporting}
-                    onClick={handleExport3MF}
-                    className="py-1.5 px-3 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-semibold text-xs flex items-center gap-1 transition-colors shadow shrink-0"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>{isExporting ? 'Downloading...' : 'Download .3MF'}</span>
-                  </button>
-                )}
-              </div>
+              {/* Simplification Slider, Presets & Actions */}
+              <SimplifyControlCard
+                targetRatio={targetRatio}
+                onTargetRatioChange={setTargetRatio}
+                baselineTris={baselineTris}
+                estimatedTargetTris={estimatedTargetTris}
+                isProcessing={isProcessing}
+                progress={progress}
+                isSimplified={isSimplified}
+                hasUnappliedChanges={hasUnappliedChanges}
+                onApplySimplification={handleApplySimplification}
+                onExport3MF={handleExport3MF}
+                isExporting={isExporting}
+                archiveLoaded={archive !== null}
+                onToggleQemOptions={() => setIsQemOptionsOpen((v) => !v)}
+                isQemOptionsOpen={isQemOptionsOpen}
+                hasCustomQemSettings={hasCustomQemSettings}
+                compact
+              />
             </div>
           )}
 
@@ -1091,9 +693,7 @@ export function App() {
               <div className="w-80 p-5 rounded-xl bg-zinc-900 border border-zinc-800 shadow-2xl space-y-3 text-center">
                 <Cpu className="w-6 h-6 text-emerald-400 mx-auto animate-pulse" />
                 <div className="text-sm font-semibold text-zinc-100">
-                  {isExporting
-                    ? 'Streaming Simplified .3MF Archive...'
-                    : progressStage}
+                  {isExporting ? 'Streaming Simplified .3MF Archive...' : progressStage}
                 </div>
                 <div className="w-full h-2 bg-zinc-800 rounded-full overflow-hidden">
                   <div
@@ -1195,6 +795,56 @@ export function App() {
             </div>
           </div>
         </main>
+
+        {/* Right QEM Options Panel (Desktop pinned or unpinned popover) */}
+        <div className="hidden md:block">
+          <QemOptionsPanel
+            isOpen={isQemOptionsOpen}
+            onClose={() => setIsQemOptionsOpen(false)}
+            isPinned={isQemPinned}
+            onTogglePin={() => setIsQemPinned((v) => !v)}
+            lockColorBoundaries={lockColorBoundaries}
+            onLockColorBoundariesChange={setLockColorBoundaries}
+            colorBoundaryWeight={colorBoundaryWeight}
+            onColorBoundaryWeightChange={setColorBoundaryWeight}
+            resolveSubdivisions={resolveSubdivisions}
+            onResolveSubdivisionsChange={setResolveSubdivisions}
+            maxGeometricError={maxGeometricError}
+            onMaxGeometricErrorChange={setMaxGeometricError}
+            lockOpenBorders={lockOpenBorders}
+            onLockOpenBordersChange={setLockOpenBorders}
+            onResetDefaults={handleResetQemDefaults}
+            onApplyChanges={handleApplySimplification}
+            hasUnappliedChanges={hasUnappliedChanges}
+            isProcessing={isProcessing}
+            mode="panel"
+          />
+        </div>
+      </div>
+
+      {/* Mobile QEM Options Drawer (Slide-up sheet) */}
+      <div className="md:hidden">
+        <QemOptionsPanel
+          isOpen={isQemOptionsOpen}
+          onClose={() => setIsQemOptionsOpen(false)}
+          isPinned={false}
+          onTogglePin={() => {}}
+          lockColorBoundaries={lockColorBoundaries}
+          onLockColorBoundariesChange={setLockColorBoundaries}
+          colorBoundaryWeight={colorBoundaryWeight}
+          onColorBoundaryWeightChange={setColorBoundaryWeight}
+          resolveSubdivisions={resolveSubdivisions}
+          onResolveSubdivisionsChange={setResolveSubdivisions}
+          maxGeometricError={maxGeometricError}
+          onMaxGeometricErrorChange={setMaxGeometricError}
+          lockOpenBorders={lockOpenBorders}
+          onLockOpenBordersChange={setLockOpenBorders}
+          onResetDefaults={handleResetQemDefaults}
+          onApplyChanges={handleApplySimplification}
+          hasUnappliedChanges={hasUnappliedChanges}
+          isProcessing={isProcessing}
+          mode="drawer"
+        />
       </div>
 
       {/* Modal: Core SDK & Programmatic Usage */}
