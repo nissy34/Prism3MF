@@ -6,7 +6,8 @@ import {
   Layers,
   ShieldCheck,
   Sparkles,
-  Grid,
+  Triangle,
+  Paintbrush,
   Eye,
   Columns,
   Cpu,
@@ -528,67 +529,69 @@ export function App() {
               )}
             </div>
 
-            {/* Target Ratio Slider */}
-            <div className="space-y-1.5">
-              <div className="flex justify-between items-baseline text-xs">
-                <label htmlFor="target-ratio-slider" className="text-zinc-200 font-medium">
-                  Triangles to Keep
-                </label>
-                <span className="font-mono text-emerald-400 font-semibold">
-                  {Math.round(targetRatio * 100)}% ({Math.round((1 - targetRatio) * 100)}% smaller)
-                </span>
-              </div>
-              <p className="text-[11px] text-zinc-400 leading-relaxed">
-                Lower % creates a lighter file that slices faster.
-                {baselineTris > 0 && (
-                  <span className="text-zinc-300 font-mono">
-                    {' '}Target: ~{estimatedTargetTris.toLocaleString()} tris
+            {/* Target Ratio Slider & Presets (desktop sidebar; on mobile, controlled directly on the 3D screen) */}
+            <div className="hidden md:block space-y-4">
+              <div className="space-y-1.5">
+                <div className="flex justify-between items-baseline text-xs">
+                  <label htmlFor="target-ratio-slider" className="text-zinc-200 font-medium">
+                    Triangles to Keep
+                  </label>
+                  <span className="font-mono text-emerald-400 font-semibold">
+                    {Math.round(targetRatio * 100)}% ({Math.round((1 - targetRatio) * 100)}% smaller)
                   </span>
-                )}
-              </p>
-              <input
-                id="target-ratio-slider"
-                type="range"
-                min={0.05}
-                max={0.95}
-                step={0.05}
-                value={targetRatio}
-                onChange={(e) => setTargetRatio(parseFloat(e.target.value))}
-                className="w-full accent-emerald-500 cursor-pointer"
-              />
-              <div className="flex justify-between text-[10px] text-zinc-400">
-                <span>Smallest File (5%)</span>
-                <span>Balanced (25%)</span>
-                <span>Max Detail (95%)</span>
+                </div>
+                <p className="text-[11px] text-zinc-400 leading-relaxed">
+                  Lower % creates a lighter file that slices faster.
+                  {baselineTris > 0 && (
+                    <span className="text-zinc-300 font-mono">
+                      {' '}Target: ~{estimatedTargetTris.toLocaleString()} tris
+                    </span>
+                  )}
+                </p>
+                <input
+                  id="target-ratio-slider"
+                  type="range"
+                  min={0.05}
+                  max={0.95}
+                  step={0.05}
+                  value={targetRatio}
+                  onChange={(e) => setTargetRatio(parseFloat(e.target.value))}
+                  className="w-full accent-emerald-500 cursor-pointer"
+                />
+                <div className="flex justify-between text-[10px] text-zinc-400">
+                  <span>Smallest File (5%)</span>
+                  <span>Balanced (25%)</span>
+                  <span>Max Detail (95%)</span>
+                </div>
               </div>
-            </div>
 
-            {/* Quick Presets */}
-            <div className="space-y-1">
-              <div className="text-[10px] uppercase tracking-wider text-zinc-400">
-                Quick Presets
-              </div>
-              <div className="grid grid-cols-4 gap-1.5">
-                {[
-                  { label: '10%', ratio: 0.1 },
-                  { label: '25%', ratio: 0.25 },
-                  { label: '50%', ratio: 0.5 },
-                  { label: '75%', ratio: 0.75 },
-                ].map((preset) => (
-                  <button
-                    key={preset.label}
-                    type="button"
-                    disabled={isProcessing}
-                    onClick={() => setTargetRatio(preset.ratio)}
-                    className={`py-1 rounded text-xs font-mono border transition-colors ${
-                      Math.abs(targetRatio - preset.ratio) < 0.01
-                        ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-300 font-semibold'
-                        : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
-                    }`}
-                  >
-                    Keep {preset.label}
-                  </button>
-                ))}
+              {/* Quick Presets */}
+              <div className="space-y-1">
+                <div className="text-[10px] uppercase tracking-wider text-zinc-400">
+                  Quick Presets
+                </div>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {[
+                    { label: '10%', ratio: 0.1 },
+                    { label: '25%', ratio: 0.25 },
+                    { label: '50%', ratio: 0.5 },
+                    { label: '75%', ratio: 0.75 },
+                  ].map((preset) => (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      disabled={isProcessing}
+                      onClick={() => setTargetRatio(preset.ratio)}
+                      className={`py-1 rounded text-xs font-mono border transition-colors ${
+                        Math.abs(targetRatio - preset.ratio) < 0.01
+                          ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-300 font-semibold'
+                          : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      Keep {preset.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
@@ -712,8 +715,8 @@ export function App() {
               </div>
             </div>
 
-            {/* Clear Action Button with Live Sync Status */}
-            <div className="space-y-2 pt-1">
+            {/* Desktop Action Buttons with Live Sync Status (on mobile, handled by drawer footer) */}
+            <div className="hidden md:block space-y-2 pt-1">
               {hasUnappliedChanges && !isProcessing && (
                 <div className="text-[11px] text-amber-300/90 bg-amber-500/10 border border-amber-500/25 rounded px-2.5 py-1.5 text-center">
                   Settings changed — click below to update the 3D model
@@ -921,34 +924,48 @@ export function App() {
                 </button>
               </div>
 
-              {/* Right Viewport Overlay Controls */}
-              <div className="flex items-center gap-1 sm:gap-2 p-1 rounded-lg bg-zinc-900/90 border border-zinc-800 backdrop-blur-md shadow-lg pointer-events-auto shrink-0">
+              {/* Right Viewport Overlay Controls: Wireframe & Color Seams */}
+              <div className="flex items-center gap-1 sm:gap-1.5 p-1 rounded-lg bg-zinc-900/90 border border-zinc-800 backdrop-blur-md shadow-lg pointer-events-auto shrink-0">
                 <button
                   type="button"
                   onClick={() => setShowWireframe((v) => !v)}
-                  className={`px-2 sm:px-3 py-1 sm:py-1.5 rounded-md text-[11px] sm:text-xs font-medium flex items-center gap-1 sm:gap-1.5 transition-colors ${
+                  className={`px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-md text-[11px] sm:text-xs font-medium flex items-center gap-1.5 transition-colors border ${
                     showWireframe
-                      ? 'bg-zinc-700 text-zinc-100'
-                      : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'
+                      ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'
+                      : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/80 border-transparent'
                   }`}
-                  title="Toggle wireframe mesh overlay"
+                  title="Wireframe: Show or hide 3D polygon triangle mesh lines"
+                  aria-label="Toggle wireframe mesh overlay"
                 >
-                  <Grid className="w-3.5 h-3.5 shrink-0" />
+                  <Triangle className="w-3.5 h-3.5 shrink-0" />
                   <span className="hidden xs:inline">Wireframe</span>
+                  <span className="xs:hidden">Wire</span>
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full shrink-0 transition-colors ${
+                      showWireframe ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]' : 'bg-zinc-600'
+                    }`}
+                  />
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setHighlightColorBorders((v) => !v)}
-                  className={`px-2 sm:px-3 py-1 sm:py-1.5 rounded-md text-[11px] sm:text-xs font-medium flex items-center gap-1 sm:gap-1.5 transition-colors ${
+                  className={`px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-md text-[11px] sm:text-xs font-medium flex items-center gap-1.5 transition-colors border ${
                     highlightColorBorders
-                      ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40'
-                      : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'
+                      ? 'bg-sky-500/20 text-sky-300 border-sky-500/50'
+                      : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/80 border-transparent'
                   }`}
-                  title="Highlight locked paint boundary edges in cyan"
+                  title="Color Seams: Highlight borders between painted filament colors in cyan"
+                  aria-label="Highlight paint color seams"
                 >
-                  <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
-                  <span className="hidden xs:inline">Seams</span>
+                  <Paintbrush className="w-3.5 h-3.5 shrink-0" />
+                  <span className="hidden xs:inline">Color Seams</span>
+                  <span className="xs:hidden">Seams</span>
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full shrink-0 transition-colors ${
+                      highlightColorBorders ? 'bg-sky-400 shadow-[0_0_6px_rgba(56,189,248,0.8)]' : 'bg-zinc-600'
+                    }`}
+                  />
                 </button>
               </div>
             </div>
@@ -1056,15 +1073,6 @@ export function App() {
                     <span>{isExporting ? 'Downloading...' : 'Download .3MF'}</span>
                   </button>
                 )}
-
-                <button
-                  type="button"
-                  onClick={() => setIsMobileSettingsOpen(true)}
-                  className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 shrink-0"
-                  title="More settings (Paint protection, shape tolerance, filaments)"
-                >
-                  <Sliders className="w-3.5 h-3.5" />
-                </button>
               </div>
             </div>
           )}
