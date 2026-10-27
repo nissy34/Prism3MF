@@ -326,15 +326,71 @@ function runCut(
   };
   self.postMessage(stageMsg);
 
-  const mesh = currentArchive.meshes[0];
-  let inVerts = mesh.expandedVertices;
-  let inTris = mesh.expandedTriangles;
-  let inPaints = mesh.expandedPaintStates;
+  let inVerts: Float32Array;
+  let inTris: Uint32Array;
+  let inPaints: Uint8Array;
 
   if (useSimplifiedIfAvailable && latestResults.length > 0) {
-    inVerts = latestResults[0].vertices;
-    inTris = latestResults[0].triangles;
-    inPaints = latestResults[0].paintStates;
+    if (latestResults.length === 1) {
+      inVerts = latestResults[0].vertices;
+      inTris = latestResults[0].triangles;
+      inPaints = latestResults[0].paintStates;
+    } else {
+      let totalV = 0;
+      let totalT = 0;
+      for (const res of latestResults) {
+        totalV += res.vertices.length;
+        totalT += res.triangles.length;
+      }
+      inVerts = new Float32Array(totalV);
+      inTris = new Uint32Array(totalT);
+      inPaints = new Uint8Array(totalT / 3);
+
+      let vOffset = 0;
+      let tOffset = 0;
+      let pOffset = 0;
+      for (const res of latestResults) {
+        const vBase = vOffset / 3;
+        inVerts.set(res.vertices, vOffset);
+        for (let i = 0; i < res.triangles.length; i++) {
+          inTris[tOffset + i] = res.triangles[i] + vBase;
+        }
+        inPaints.set(res.paintStates, pOffset);
+        vOffset += res.vertices.length;
+        tOffset += res.triangles.length;
+        pOffset += res.paintStates.length;
+      }
+    }
+  } else if (currentArchive.meshes.length === 1) {
+    const mesh = currentArchive.meshes[0];
+    inVerts = mesh.expandedVertices;
+    inTris = mesh.expandedTriangles;
+    inPaints = mesh.expandedPaintStates;
+  } else {
+    let totalV = 0;
+    let totalT = 0;
+    for (const m of currentArchive.meshes) {
+      totalV += m.expandedVertices.length;
+      totalT += m.expandedTriangles.length;
+    }
+    inVerts = new Float32Array(totalV);
+    inTris = new Uint32Array(totalT);
+    inPaints = new Uint8Array(totalT / 3);
+
+    let vOffset = 0;
+    let tOffset = 0;
+    let pOffset = 0;
+    for (const m of currentArchive.meshes) {
+      const vBase = vOffset / 3;
+      inVerts.set(m.expandedVertices, vOffset);
+      for (let i = 0; i < m.expandedTriangles.length; i++) {
+        inTris[tOffset + i] = m.expandedTriangles[i] + vBase;
+      }
+      inPaints.set(m.expandedPaintStates, pOffset);
+      vOffset += m.expandedVertices.length;
+      tOffset += m.expandedTriangles.length;
+      pOffset += m.expandedPaintStates.length;
+    }
   }
 
   const cutResult = cutPaintedMesh(inVerts, inTris, inPaints, options);

@@ -421,6 +421,9 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   const origLabelRef = useRef<HTMLDivElement>(null);
   const simpLabelRef = useRef<HTMLDivElement>(null);
 
+  const explodedPartARefs = useRef<THREE.Object3D[]>([]);
+  const explodedPartBRefs = useRef<THREE.Object3D[]>([]);
+
   // Model bounds in raw coordinates to map between raw cutPlaneZ and scene coordinates
   const modelBounds = useMemo(() => {
     let minZ = 0;
@@ -1110,10 +1113,6 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       pitchRingHitbox.position.set(0, 0, sceneZ);
       planeGroup.add(pitchRingHitbox);
       gizmoHitboxesRef.current.pitchRing = pitchRingHitbox;
-      pitchRingHitbox.rotation.y = Math.PI / 2;
-      pitchRingHitbox.position.set(0, 0, sceneZ);
-      planeGroup.add(pitchRingHitbox);
-      gizmoHitboxesRef.current.pitchRing = pitchRingHitbox;
 
       // Position default badge anchor on the active rotation wheel
       if (isRollActive) {
@@ -1161,6 +1160,9 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
     if (meshes.length === 0) return;
 
+    explodedPartARefs.current = [];
+    explodedPartBRefs.current = [];
+
     // Mode: Cut Result Display (handles both Cut Tab and Cut Simplification)
     const isShowingCutResult = cutResult && (mode === 'cut' || simplificationTarget === 'cut');
     if (isShowingCutResult) {
@@ -1176,11 +1178,18 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         const partB =
           useSimplified || !isCutSimplified ? cutResult.partB : cutResult.originalPartB!;
 
-        const createPartMesh = (
+        const partAGroup = new THREE.Group();
+        const partBGroup = new THREE.Group();
+        partAGroup.position.z = explodedOffset;
+        partBGroup.position.z = -explodedOffset;
+        explodedPartARefs.current.push(partAGroup);
+        explodedPartBRefs.current.push(partBGroup);
+
+        const createPartMeshInGroup = (
+          targetGroup: THREE.Group,
           partVerts: Float32Array,
           partTris: Uint32Array,
           partPaints: Uint8Array,
-          zOffset: number,
           defaultExtruder = 1
         ) => {
           const geom = createPaintedBufferGeometry(
@@ -1199,8 +1208,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
             polygonOffsetUnits: 1,
           });
           const meshObj = new THREE.Mesh(geom, mat);
-          meshObj.position.set(0, 0, zOffset);
-          cutGroup.add(meshObj);
+          targetGroup.add(meshObj);
 
           if (showWireframe) {
             const wireMat = new THREE.MeshBasicMaterial({
@@ -1210,24 +1218,25 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
               opacity: 0.35,
             });
             const wireMesh = new THREE.Mesh(geom, wireMat);
-            wireMesh.position.set(0, 0, zOffset);
-            cutGroup.add(wireMesh);
+            targetGroup.add(wireMesh);
           }
         };
 
-        // Upper Part A (lifted upward by explodedOffset)
-        createPartMesh(partA.vertices, partA.triangles, partA.paintStates, explodedOffset);
+        // Upper Part A
+        createPartMeshInGroup(partAGroup, partA.vertices, partA.triangles, partA.paintStates);
+        cutGroup.add(partAGroup);
 
-        // Lower Part B (shifted downward by explodedOffset)
-        createPartMesh(partB.vertices, partB.triangles, partB.paintStates, -explodedOffset);
+        // Lower Part B
+        createPartMeshInGroup(partBGroup, partB.vertices, partB.triangles, partB.paintStates);
+        cutGroup.add(partBGroup);
 
         // Dowel Pin if present
         if (cutResult.dowelPin) {
-          createPartMesh(
+          createPartMeshInGroup(
+            cutGroup,
             cutResult.dowelPin.vertices,
             cutResult.dowelPin.triangles,
             cutResult.dowelPin.paintStates,
-            0,
             2 // Contrast filament for dowel pin
           );
         }
@@ -1421,8 +1430,17 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     mode,
     simplificationTarget,
     cutResult,
-    explodedOffset,
   ]);
+
+  // Fast GPU transform update for exploded view separation (zero geometry re-allocation)
+  useEffect(() => {
+    for (const g of explodedPartARefs.current) {
+      g.position.z = explodedOffset;
+    }
+    for (const g of explodedPartBRefs.current) {
+      g.position.z = -explodedOffset;
+    }
+  }, [explodedOffset]);
 
   const totalOrigTris = meshes.reduce((acc, m) => acc + m.expandedTriangles.length / 3, 0);
   const totalSimpTris = simplifiedMeshes.reduce((acc, m) => acc + m.simplifiedTriangles, 0);

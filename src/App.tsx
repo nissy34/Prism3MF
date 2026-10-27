@@ -340,6 +340,9 @@ export function App() {
   const handleUndoCut = () => {
     setCutResult(null);
     setSimplificationTarget('uncut');
+    if (!isSimplified) {
+      setDisplayMode('original');
+    }
   };
 
   const handleExecuteCut = () => {
@@ -622,27 +625,36 @@ export function App() {
           </button>
 
           {/* Download button: shown when a model is loaded */}
-          {archive && (
-            <button
-              type="button"
-              disabled={!isSimplified || isProcessing || isExporting}
-              onClick={handleExport3MF}
-              className="px-2.5 sm:px-4 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 disabled:opacity-35 disabled:hover:bg-emerald-500 text-zinc-950 flex items-center gap-1.5 transition-colors shadow-xs shrink-0"
-              title={!isSimplified ? 'Simplify mesh first to download' : 'Download simplified .3MF file'}
-            >
-              <Download className="w-3.5 h-3.5 shrink-0" />
-              <span>
-                {isExporting ? (
-                  'Downloading...'
-                ) : (
-                  <>
-                    <span className="hidden xs:inline">Download </span>
-                    <span>.3MF</span>
-                  </>
-                )}
-              </span>
-            </button>
-          )}
+          {archive && (() => {
+            const canDownload = (isSimplified || cutResult !== null) && !isProcessing && !isExporting;
+            return (
+              <button
+                type="button"
+                disabled={!canDownload}
+                onClick={handleExport3MF}
+                className="px-2.5 sm:px-4 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 disabled:opacity-35 disabled:hover:bg-emerald-500 text-zinc-950 flex items-center gap-1.5 transition-colors shadow-xs shrink-0 cursor-pointer"
+                title={
+                  !canDownload
+                    ? 'Cut or simplify mesh first to download'
+                    : cutResult !== null
+                      ? 'Download cut .3MF model'
+                      : 'Download simplified .3MF file'
+                }
+              >
+                <Download className="w-3.5 h-3.5 shrink-0" />
+                <span>
+                  {isExporting ? (
+                    'Downloading...'
+                  ) : (
+                    <>
+                      <span className="hidden xs:inline">Download </span>
+                      <span>.3MF</span>
+                    </>
+                  )}
+                </span>
+              </button>
+            );
+          })()}
         </div>
       </header>
 
@@ -894,7 +906,7 @@ export function App() {
 
           {/* Mobile Floating Workspace Deck: Telemetry + Filaments + Simplification */}
           {archive && (
-            <div className="md:hidden absolute bottom-9 left-2 right-2 sm:left-4 sm:right-4 z-20 rounded-2xl bg-zinc-900/95 border border-zinc-800/90 backdrop-blur-md shadow-2xl pointer-events-auto transition-all duration-200">
+            <div className="md:hidden absolute bottom-9 left-2 right-2 sm:left-4 sm:right-4 z-20 rounded-2xl bg-zinc-900/95 border border-zinc-800/90 backdrop-blur-md shadow-2xl pointer-events-auto transition-all duration-200 max-h-[75dvh] overflow-y-auto">
               {isMobileDeckExpanded ? (
                 <div className="p-2.5 sm:p-3 space-y-2">
                   {/* Deck Header with Minimize Toggle */}
@@ -1024,6 +1036,7 @@ export function App() {
                       onTargetRatioChange={setTargetRatio}
                       onSimplifyCutParts={handleSimplifyCutParts}
                       onRevertCutSimplification={handleRevertCutSimplification}
+                      compact
                     />
                   )}
                 </div>

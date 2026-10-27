@@ -52,6 +52,7 @@ interface CutSplitterControlCardProps {
   onTargetRatioChange?: (ratio: number) => void;
   onSimplifyCutParts?: (ratio?: number) => void;
   onRevertCutSimplification?: () => void;
+  compact?: boolean;
 }
 
 export const CutSplitterControlCard: React.FC<CutSplitterControlCardProps> = ({
@@ -82,6 +83,7 @@ export const CutSplitterControlCard: React.FC<CutSplitterControlCardProps> = ({
   onTargetRatioChange,
   onSimplifyCutParts,
   onRevertCutSimplification,
+  compact = false,
 }) => {
   const [pitchAngle, setPitchAngle] = useState<number>(0);
   const [rollAngle, setRollAngle] = useState<number>(0);
@@ -131,6 +133,150 @@ export const CutSplitterControlCard: React.FC<CutSplitterControlCardProps> = ({
       handlePreset(0.5);
     }
   };
+
+  if (compact) {
+    // Mobile Bottom Deck style
+    return (
+      <div className="space-y-2.5 text-zinc-100 text-xs">
+        {/* Cut Height Slider */}
+        <div className="space-y-1">
+          <div className="flex justify-between items-center text-xs">
+            <span className="font-semibold text-zinc-200 flex items-center gap-1">
+              <Scissors className="w-3.5 h-3.5 text-emerald-400" />
+              Cut Height (Z):
+            </span>
+            <span className="font-mono text-emerald-400 font-bold">
+              {cutPlaneZ.toFixed(1)} mm
+            </span>
+          </div>
+          <input
+            type="range"
+            min={zMin}
+            max={zMax}
+            step={0.1}
+            value={cutPlaneZ}
+            onChange={(e) => onCutPlaneZChange(parseFloat(e.target.value))}
+            className="w-full accent-emerald-500 cursor-pointer"
+          />
+          <div className="flex justify-between text-[9px] font-mono text-zinc-500">
+            <span>{zMin}mm</span>
+            <div className="flex gap-1.5">
+              <button
+                type="button"
+                onClick={() => handlePreset(0.25)}
+                className="hover:text-emerald-400 cursor-pointer"
+              >
+                25%
+              </button>
+              <button
+                type="button"
+                onClick={() => handlePreset(0.5)}
+                className="hover:text-emerald-400 cursor-pointer"
+              >
+                50%
+              </button>
+              <button
+                type="button"
+                onClick={() => handlePreset(0.75)}
+                className="hover:text-emerald-400 cursor-pointer"
+              >
+                75%
+              </button>
+            </div>
+            <span>{zMax}mm</span>
+          </div>
+        </div>
+
+        {/* Quick Toggles: Caps & Dowels */}
+        <div className="grid grid-cols-2 gap-2 text-[11px]">
+          <label className="flex items-center gap-1.5 p-1.5 rounded-md bg-zinc-950/60 border border-zinc-800 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={capFaces}
+              onChange={(e) => onCapFacesChange(e.target.checked)}
+              className="rounded accent-emerald-500 cursor-pointer"
+            />
+            <span className="truncate">Cap Faces</span>
+          </label>
+          <label className="flex items-center gap-1.5 p-1.5 rounded-md bg-zinc-950/60 border border-zinc-800 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={connectorOptions.enabled}
+              onChange={(e) =>
+                onConnectorOptionsChange({
+                  ...connectorOptions,
+                  enabled: e.target.checked,
+                })
+              }
+              className="rounded accent-emerald-500 cursor-pointer"
+            />
+            <span className="truncate">Dowel Pins</span>
+          </label>
+        </div>
+
+        {/* Exploded View Slider (if cut result exists) */}
+        {cutResult && (
+          <div className="space-y-1 p-2 rounded-lg bg-zinc-950/60 border border-zinc-800/80">
+            <div className="flex justify-between items-center text-[11px]">
+              <span className="text-zinc-300">Exploded Separation:</span>
+              <span className="font-mono text-emerald-400 font-bold">{explodedOffset} mm</span>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={40}
+              step={1}
+              value={explodedOffset}
+              onChange={(e) => onExplodedOffsetChange(parseFloat(e.target.value))}
+              className="w-full accent-emerald-500 cursor-pointer"
+            />
+          </div>
+        )}
+
+        {/* Action Button: Perform Cut / Re-Cut */}
+        <div className="flex gap-2 pt-0.5">
+          <button
+            type="button"
+            disabled={isProcessing}
+            onClick={onExecuteCut}
+            className="flex-1 py-2 px-3 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-md cursor-pointer disabled:opacity-50"
+          >
+            <Scissors className="w-3.5 h-3.5" />
+            <span>
+              {isProcessing
+                ? 'Slicing...'
+                : cutResult
+                  ? 'Re-Perform Cut'
+                  : 'Perform Cut'}
+            </span>
+          </button>
+
+          {cutResult && (
+            <>
+              <button
+                type="button"
+                disabled={isExporting}
+                onClick={() => onExport('all', assembleInPlace)}
+                className="py-2 px-3 rounded-lg bg-zinc-100 hover:bg-white text-zinc-950 font-semibold text-xs flex items-center gap-1 shadow-sm cursor-pointer"
+                title="Download cut model"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Export</span>
+              </button>
+              <button
+                type="button"
+                onClick={onUndoCut}
+                className="p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 text-xs flex items-center justify-center cursor-pointer"
+                title="Reset cut"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-zinc-900/90 backdrop-blur-md border border-zinc-800 rounded-xl p-4 sm:p-5 shadow-2xl flex flex-col gap-4 text-zinc-100">

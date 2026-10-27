@@ -223,4 +223,92 @@ describe('Color-Preserving Cut Splitter (cutPaintedMesh)', () => {
     expect(reloadedSingle.meshes.length).toBe(1);
     expect(reloadedSingle.meshes[0].name).toBe('Part_A_Upper');
   });
+
+  it('handles oblique angled cut planes (e.g. 45-degree pitch/roll)', () => {
+    const buffer = generateSample3MF();
+    const originalArchive = parse3MFArchive(buffer, 'figurine.3mf');
+    const mesh = originalArchive.meshes[0];
+
+    // 45-degree tilted normal in X-Z
+    const invSqrt2 = 1 / Math.SQRT2;
+    const cutResult = cutPaintedMesh(
+      mesh.expandedVertices,
+      mesh.expandedTriangles,
+      mesh.expandedPaintStates,
+      {
+        planePoint: [0, 0, 25.0],
+        planeNormal: [invSqrt2, 0, invSqrt2],
+        capFaces: true,
+        connectors: { enabled: false },
+      }
+    );
+
+    expect(cutResult.partA.triangles.length).toBeGreaterThan(0);
+    expect(cutResult.partB.triangles.length).toBeGreaterThan(0);
+
+    // Verify all vertex coordinates are valid numbers (no NaN or Infinity)
+    for (let i = 0; i < cutResult.partA.vertices.length; i++) {
+      expect(Number.isFinite(cutResult.partA.vertices[i])).toBe(true);
+    }
+    for (let i = 0; i < cutResult.partB.vertices.length; i++) {
+      expect(Number.isFinite(cutResult.partB.vertices[i])).toBe(true);
+    }
+  });
+
+  it('handles out-of-bounds cut planes where all vertices are on one side', () => {
+    const buffer = generateSample3MF();
+    const originalArchive = parse3MFArchive(buffer, 'figurine.3mf');
+    const mesh = originalArchive.meshes[0];
+
+    // Cut plane far above the model (Z = 500)
+    const cutResult = cutPaintedMesh(
+      mesh.expandedVertices,
+      mesh.expandedTriangles,
+      mesh.expandedPaintStates,
+      {
+        planePoint: [0, 0, 500.0],
+        planeNormal: [0, 0, 1],
+        capFaces: true,
+        connectors: { enabled: false },
+      }
+    );
+
+    // All geometry should fall into Part B (negative half-space)
+    expect(cutResult.partA.triangles.length).toBe(0);
+    expect(cutResult.partB.triangles.length).toBe(mesh.expandedTriangles.length);
+  });
+
+  it('handles vertices lying exactly on the cut plane without creating degenerate triangles', () => {
+    // 2 triangles forming a quad split across Z=0
+    // Middle vertices lie precisely on Z=0
+    const vertices = new Float32Array([
+      -1, -1, -1, // 0: z < 0
+       1, -1,  0, // 1: z == 0 exactly on plane
+       1,  1,  1, // 2: z > 0
+      -1,  1,  0, // 3: z == 0 exactly on plane
+    ]);
+    const triangles = new Uint32Array([
+      0, 1, 3,
+      1, 2, 3,
+    ]);
+    const paints = new Uint8Array([1, 2]);
+
+    const result = cutPaintedMesh(vertices, triangles, paints, {
+      planePoint: [0, 0, 0],
+      planeNormal: [0, 0, 1],
+      capFaces: false,
+      connectors: { enabled: false },
+    });
+
+    expect(result.partA.triangles.length).toBeGreaterThan(0);
+    expect(result.partB.triangles.length).toBeGreaterThan(0);
+
+    // Verify no degenerate zero-area triangles (all 3 vertices of a face sharing identical coords)
+    for (let t = 0; t < result.partA.triangles.length / 3; t++) {
+      const i0 = result.partA.triangles[3 * t];
+      const i1 = result.partA.triangles[3 * t + 1];
+      const i2 = result.partA.triangles[3 * t + 2];
+      expect(i0 === i1 && i1 === i2).toBe(false);
+    }
+  });
 });

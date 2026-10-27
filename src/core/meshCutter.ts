@@ -251,12 +251,12 @@ export function cutPaintedMesh(
     const d1 = distances[i1];
     const d2 = distances[i2];
 
-    const s0 = d0 > EPSILON ? 1 : d0 < -EPSILON ? -1 : 0;
-    const s1 = d1 > EPSILON ? 1 : d1 < -EPSILON ? -1 : 0;
-    const s2 = d2 > EPSILON ? 1 : d2 < -EPSILON ? -1 : 0;
+    const s0 = d0 >= 0 ? 1 : -1;
+    const s1 = d1 >= 0 ? 1 : -1;
+    const s2 = d2 >= 0 ? 1 : -1;
 
     // Case 1: Entirely on side A
-    if (s0 >= 0 && s1 >= 0 && s2 >= 0) {
+    if (s0 === 1 && s1 === 1 && s2 === 1) {
       const a0 = addVertA(vertices[3 * i0], vertices[3 * i0 + 1], vertices[3 * i0 + 2]);
       const a1 = addVertA(vertices[3 * i1], vertices[3 * i1 + 1], vertices[3 * i1 + 2]);
       const a2 = addVertA(vertices[3 * i2], vertices[3 * i2 + 1], vertices[3 * i2 + 2]);
@@ -266,7 +266,7 @@ export function cutPaintedMesh(
     }
 
     // Case 2: Entirely on side B
-    if (s0 <= 0 && s1 <= 0 && s2 <= 0) {
+    if (s0 === -1 && s1 === -1 && s2 === -1) {
       const b0 = addVertB(vertices[3 * i0], vertices[3 * i0 + 1], vertices[3 * i0 + 2]);
       const b1 = addVertB(vertices[3 * i1], vertices[3 * i1 + 1], vertices[3 * i1 + 2]);
       const b2 = addVertB(vertices[3 * i2], vertices[3 * i2 + 1], vertices[3 * i2 + 2]);
@@ -615,9 +615,9 @@ export function cutPaintedMesh(
               paintsB.push(capPaintSlot);
             }
 
-            // Companion printable dowel pin
+            // Companion printable dowel pin centered at socket centroid
             buildCylinder(
-              0, 0, pinRadius,
+              cu, cv, pinRadius,
               -connHalfLen, connHalfLen,
               false,
               pinVerts, pinTris, pinPaints, 1,
