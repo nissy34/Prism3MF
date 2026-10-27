@@ -855,7 +855,7 @@ export function App() {
                     </div>
                     <div className="flex flex-col items-center gap-0.5">
                       <span className="text-emerald-400 font-semibold">100% Private</span>
-                      <span className="text-[10px] text-zinc-500">Client-side WASM</span>
+                      <span className="text-[10px] text-zinc-500">In-Browser Worker</span>
                     </div>
                   </div>
 
