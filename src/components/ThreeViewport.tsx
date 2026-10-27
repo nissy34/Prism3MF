@@ -198,6 +198,137 @@ function createColorBorderLinesGeometry(
   return geom;
 }
 
+/**
+ * Creates a double-cone arrow with a central cube handle matching Bambu Studio / OrcaSlicer (Image 1 & 2)
+ */
+function createSlicerDoubleConeHandle(colorHex: string, axis: 'x' | 'y' | 'z'): THREE.Group {
+  const group = new THREE.Group();
+  const cubeGeom = new THREE.BoxGeometry(3.6, 3.6, 3.6);
+  const cubeMat = new THREE.MeshBasicMaterial({ color: colorHex, depthTest: false });
+  const cube = new THREE.Mesh(cubeGeom, cubeMat);
+  cube.renderOrder = 9999;
+  group.add(cube);
+
+  const coneGeom = new THREE.ConeGeometry(2.2, 5.0, 16);
+  const coneMat = new THREE.MeshBasicMaterial({ color: colorHex, depthTest: false });
+
+  const coneA = new THREE.Mesh(coneGeom, coneMat);
+  const coneB = new THREE.Mesh(coneGeom, coneMat);
+  coneA.renderOrder = 9999;
+  coneB.renderOrder = 9999;
+
+  if (axis === 'x') {
+    coneA.rotateZ(-Math.PI / 2);
+    coneA.position.set(4.2, 0, 0);
+    coneB.rotateZ(Math.PI / 2);
+    coneB.position.set(-4.2, 0, 0);
+  } else if (axis === 'y') {
+    coneA.position.set(0, 4.2, 0);
+    coneB.rotateX(Math.PI);
+    coneB.position.set(0, -4.2, 0);
+  } else {
+    coneA.rotateX(Math.PI / 2);
+    coneA.position.set(0, 0, 4.2);
+    coneB.rotateX(-Math.PI / 2);
+    coneB.position.set(0, 0, -4.2);
+  }
+
+  group.add(coneA);
+  group.add(coneB);
+  return group;
+}
+
+/**
+ * Builds a Bambu Studio / OrcaSlicer protractor dial with snap points (Image 2)
+ * Features 8 major radial spokes (every 45°), 15° medium ticks, 5° minor ticks,
+ * concentric circular guides, and green/red cube-cone handles.
+ */
+function createProtractorDialGroup(radius: number): THREE.Group {
+  const dialGroup = new THREE.Group();
+
+  // Outer ring (128 segments)
+  const outerPoints: THREE.Vector3[] = [];
+  const segments = 128;
+  for (let i = 0; i <= segments; i++) {
+    const th = (i / segments) * Math.PI * 2;
+    outerPoints.push(new THREE.Vector3(Math.cos(th) * radius, Math.sin(th) * radius, 0));
+  }
+  const outerGeom = new THREE.BufferGeometry().setFromPoints(outerPoints);
+  const outerMat = new THREE.LineBasicMaterial({
+    color: '#ffffff',
+    transparent: true,
+    opacity: 0.85,
+    depthTest: false,
+  });
+  const outerLine = new THREE.Line(outerGeom, outerMat);
+  outerLine.renderOrder = 9999;
+  dialGroup.add(outerLine);
+
+  // Radial spoke lines and perimeter tick marks
+  const tickCoords: number[] = [];
+  for (let deg = 0; deg < 360; deg += 5) {
+    const rad = (deg * Math.PI) / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+
+    let rIn = radius * 0.94;
+    let rOut = radius * 1.02;
+
+    if (deg % 45 === 0) {
+      // Major snap spoke line extending inward toward the center (Bambu Studio 45° snap points)
+      rIn = radius * 0.35;
+      rOut = radius * 1.08;
+    } else if (deg % 15 === 0) {
+      // Medium 15° snap tick
+      rIn = radius * 0.88;
+      rOut = radius * 1.05;
+    }
+
+    tickCoords.push(cos * rIn, sin * rIn, 0, cos * rOut, sin * rOut, 0);
+  }
+
+  const ticksGeom = new THREE.BufferGeometry();
+  ticksGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(tickCoords), 3));
+  const ticksMat = new THREE.LineBasicMaterial({
+    color: '#ffffff',
+    transparent: true,
+    opacity: 0.9,
+    depthTest: false,
+  });
+  const ticksLines = new THREE.LineSegments(ticksGeom, ticksMat);
+  ticksLines.renderOrder = 9999;
+  dialGroup.add(ticksLines);
+
+  // Inner hub guide circle
+  const innerPoints: THREE.Vector3[] = [];
+  for (let i = 0; i <= segments; i++) {
+    const th = (i / segments) * Math.PI * 2;
+    innerPoints.push(new THREE.Vector3(Math.cos(th) * radius * 0.35, Math.sin(th) * radius * 0.35, 0));
+  }
+  const innerGeom = new THREE.BufferGeometry().setFromPoints(innerPoints);
+  const innerMat = new THREE.LineBasicMaterial({
+    color: '#ffffff',
+    transparent: true,
+    opacity: 0.35,
+    depthTest: false,
+  });
+  const innerLine = new THREE.Line(innerGeom, innerMat);
+  innerLine.renderOrder = 9998;
+  dialGroup.add(innerLine);
+
+  // Top Handle: Green double-cone with central green cube (matching Image 2)
+  const topHandle = createSlicerDoubleConeHandle('#22c55e', 'x');
+  topHandle.position.set(0, radius * 1.05, 0);
+  dialGroup.add(topHandle);
+
+  // Side Handle: Red double-cone with central red cube (matching Image 1)
+  const sideHandle = createSlicerDoubleConeHandle('#ef4444', 'y');
+  sideHandle.position.set(radius * 1.05, 0, 0);
+  dialGroup.add(sideHandle);
+
+  return dialGroup;
+}
+
 export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   meshes,
   simplifiedMeshes,
@@ -262,6 +393,17 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   const gizmoAnchorRef = useRef<THREE.Group | null>(null);
   const [gizmoMode, setGizmoMode] = useState<'translate' | 'rotate'>('translate');
   const [rotationSnap, setRotationSnap] = useState<number>(15);
+
+  const dialLabelRef = useRef<HTMLDivElement>(null);
+  const dialAnchorRef = useRef<THREE.Vector3>(new THREE.Vector3());
+  const [dialAngleText, setDialAngleText] = useState<string>('Y: 0.00°');
+
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
+  const cutResultRef = useRef(cutResult);
+  cutResultRef.current = cutResult;
+  const gizmoModeRef = useRef(gizmoMode);
+  gizmoModeRef.current = gizmoMode;
 
   // Initialize Three.js Scene & OrcaSlicer-style Build Plate
   useEffect(() => {
@@ -402,6 +544,8 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       } else if (tControls.getMode() === 'rotate') {
         const q = gizmoAnchorRef.current.quaternion;
         const norm = new THREE.Vector3(0, 0, 1).applyQuaternion(q).normalize();
+        const angleDeg = (Math.acos(Math.min(1, Math.max(-1, norm.z))) * 180) / Math.PI;
+        setDialAngleText(`${Math.abs(norm.y) > 0.01 ? 'Y: ' : 'X: '}${angleDeg.toFixed(2)}°`);
         onCutPlaneNormalChangeRef.current?.([
           Number(norm.x.toFixed(4)),
           Number(norm.y.toFixed(4)),
@@ -415,6 +559,24 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       animId = requestAnimationFrame(animate);
       controls.update();
       renderer.render(scene, camera);
+
+      // Bambu Studio Slicer Angle HUD Badge (Image 2)
+      if (dialLabelRef.current && modeRef.current === 'cut' && !cutResultRef.current && gizmoModeRef.current === 'rotate') {
+        const v = dialAnchorRef.current.clone();
+        v.project(camera);
+        if (v.z > 1) {
+          dialLabelRef.current.style.display = 'none';
+        } else {
+          const w = container.clientWidth;
+          const h = container.clientHeight;
+          const px = (v.x * 0.5 + 0.5) * w;
+          const py = (-v.y * 0.5 + 0.5) * h;
+          dialLabelRef.current.style.display = 'flex';
+          dialLabelRef.current.style.transform = `translate(-50%, -130%) translate(${Math.round(px)}px, ${Math.round(py)}px)`;
+        }
+      } else if (dialLabelRef.current) {
+        dialLabelRef.current.style.display = 'none';
+      }
 
       if (isSplitAnchoredRef.current && displayModeRef.current === 'split') {
         const updateBadge = (anchor: THREE.Vector3, el: HTMLDivElement | null) => {
@@ -612,6 +774,19 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       handleGroup.add(rightCone);
       handleGroup.add(leftCone);
       planeGroup.add(handleGroup);
+
+      // Bambu Studio Protractor Dial with Snap Points (matching Image 2)
+      if (gizmoMode === 'rotate') {
+        const dialRadius = Math.max(Math.min(boundX, boundY) * 0.48, 28);
+        const dial = createProtractorDialGroup(dialRadius);
+        dial.position.set(0, 0, sceneZ);
+        dial.quaternion.copy(quat);
+        planeGroup.add(dial);
+
+        // Position dialAnchorRef for the live HUD badge (Image 2)
+        const topHandleOffset = new THREE.Vector3(0, dialRadius * 1.05, 0).applyQuaternion(quat);
+        dialAnchorRef.current.set(topHandleOffset.x, topHandleOffset.y, sceneZ + topHandleOffset.z);
+      }
 
       // Attach 3D Drag Gizmo
       if (gizmoAnchorRef.current) {
@@ -922,6 +1097,16 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         <span className="font-mono text-emerald-400 font-bold">
           ({totalSimpTris.toLocaleString()} tris • -{reductionPct}%)
         </span>
+      </div>
+
+      {/* 3D-Anchored Angle Badge for Protractor Dial (like Bambu Studio Y: 0.00 in Image 2) */}
+      <div
+        ref={dialLabelRef}
+        style={{ display: 'none', position: 'absolute', top: 0, left: 0 }}
+        className="pointer-events-none z-30 px-2 py-0.5 rounded bg-zinc-950/95 border border-zinc-700/80 shadow-2xl text-[11px] font-mono font-bold text-zinc-100 flex items-center gap-1.5 whitespace-nowrap backdrop-blur-md"
+      >
+        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0 shadow-[0_0_6px_rgba(52,211,153,0.9)]" />
+        <span>{dialAngleText}</span>
       </div>
 
       {/* 3D Slicer Cut & Snap Control Toolbar */}
